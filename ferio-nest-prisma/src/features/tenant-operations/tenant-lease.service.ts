@@ -129,4 +129,44 @@ export class TenantLeaseService {
       orderBy: { startDate: 'desc' },
     });
   }
+  // ────────────────────────────────────────────────────────────
+  // Guarantors (§ Week 13)
+  // ────────────────────────────────────────────────────────────
+
+  async createGuarantor(organizationId: string, renterId: string, input: {
+    name: string;
+    phone?: string;
+    nidNumber?: string;
+    address?: string;
+    relation?: string;
+  }) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    return db.guarantor.create({
+      data: { ...input, renterId },
+    });
+  }
+
+  async listGuarantors(organizationId: string, renterId: string) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    return db.guarantor.findMany({
+      where: { renterId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // Reservations (§ Week 13)
+  // ────────────────────────────────────────────────────────────
+
+  /** Mark a unit as RESERVED (holding it for a prospective renter). */
+  async reserveUnit(organizationId: string, unitId: string) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    const unit = await db.unit.findUnique({ where: { id: unitId } });
+    if (!unit) throw new Error('Unit not found');
+    if (!['AVAILABLE', 'LISTED'].includes(unit.status)) {
+      throw new Error(`Cannot reserve a ${unit.status} unit`);
+    }
+    return db.unit.update({ where: { id: unitId }, data: { status: 'RESERVED' as any } });
+  }
+
 }

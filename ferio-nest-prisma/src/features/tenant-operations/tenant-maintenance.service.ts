@@ -47,7 +47,7 @@ export class TenantMaintenanceService {
 
     const db = await this.tenantDbManager.getTenantDatabase(organizationId);
 
-    return db.maintenanceRequest.create({
+    const request = await db.maintenanceRequest.create({
       data: {
         unitId: input.unitId,
         scope: input.scope,

@@ -298,6 +298,36 @@ export class TenantOperationsController {
   }
 
   // ────────────────────────────────────────────────────────────
+  // Guarantors & Reservations (§ Week 13)
+  // ────────────────────────────────────────────────────────────
+
+  @Post('renters/:renterId/guarantors')
+  @UseGuards(DomainWriteGuard)
+  @RequireMemberDomain('leasing')
+  @ApiOperation({ summary: 'Add a guarantor to a renter' })
+  async createGuarantor(
+    @Req() req: any,
+    @Param('renterId') renterId: string,
+    @Body() body: { name: string; phone?: string; nidNumber?: string; address?: string; relation?: string },
+  ) {
+    return this.leaseService.createGuarantor(this.getOrgId(req), renterId, body);
+  }
+
+  @Get('renters/:renterId/guarantors')
+  @ApiOperation({ summary: 'List guarantors for a renter' })
+  async listGuarantors(@Req() req: any, @Param('renterId') renterId: string) {
+    return this.leaseService.listGuarantors(this.getOrgId(req), renterId);
+  }
+
+  @Post('units/:unitId/reserve')
+  @UseGuards(DomainWriteGuard)
+  @RequireMemberDomain('leasing')
+  @ApiOperation({ summary: 'Mark unit as RESERVED' })
+  async reserveUnit(@Req() req: any, @Param('unitId') unitId: string) {
+    return this.leaseService.reserveUnit(this.getOrgId(req), unitId);
+  }
+
+  // ────────────────────────────────────────────────────────────
   // Billing & Multi-Beneficiary Payments
   // ────────────────────────────────────────────────────────────
 

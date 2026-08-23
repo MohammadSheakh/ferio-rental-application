@@ -163,10 +163,17 @@ export class CreateTenantLeaseDto {
   @Min(0)
   monthlyRent!: number;
 
-  @ApiPropertyOptional({ example: 50000 })
+  @ApiPropertyOptional({ example: 50000, description: 'Security deposit' })
   @IsNumber()
   @IsOptional()
   securityDeposit?: number;
+
+  @ApiPropertyOptional({ description: 'Occupant names', example: ['Renter Name'] })
+  @IsArray()
+  @IsOptional()
+  occupantNames?: string[];
+
+  
 
   @ApiPropertyOptional({ example: 2 })
   @IsNumber()
