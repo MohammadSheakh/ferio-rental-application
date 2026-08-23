@@ -1210,40 +1210,13 @@ Checklist:
 
 ## Week 32 — Automation
 
-```text
-Trigger
-Condition
-Action
-Execution
-```
+> **v2.1 implementation:** AutomationRule + AutomationExecution (migration 0008). Staff-defined rules fire CREATE_NOTICE or INVOKE_WEBHOOK actions when domain triggers occur. Unique (ruleId, refId) constraint enforces idempotency; dry-run records without side effects; execution history doubles as audit trail. Verified end-to-end.
 
-Triggers:
-
-```text
-invoice.overdue
-lease.expiring
-maintenance.opened
-listing.expiring
-subscription.past_due
-```
-
-Actions:
-
-```text
-send notification
-create task
-assign staff
-send WhatsApp
-invoke webhook
-```
-
-Checklist:
-
-- [ ] idempotency
-- [ ] recursion protection
-- [ ] dry run
-- [ ] audit
-- [ ] execution history
+- [x] idempotency *(unique (ruleId, refId) — P2002 caught → SKIPPED_DUPLICATE)*
+- [x] recursion protection *(viaAutomation flag on context)*
+- [x] dry run *(POST /tenant/automations/dry-run)*
+- [x] audit *(execution rows = full history)*
+- [x] execution history
 
 ## Week 33 — External API & Webhooks
 

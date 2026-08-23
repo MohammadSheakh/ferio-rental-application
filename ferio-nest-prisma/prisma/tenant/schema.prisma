@@ -235,6 +235,27 @@ enum CommissionPayoutStatus {
   PAID
 }
 
+enum AutomationTrigger {
+  INVOICE_OVERDUE
+  LEASE_EXPIRING
+  MAINTENANCE_OPENED
+  LISTING_EXPIRING
+  SUBSCRIPTION_PAST_DUE
+}
+
+enum AutomationAction {
+  CREATE_NOTICE
+  INVOKE_WEBHOOK
+}
+
+enum AutomationExecStatus {
+  SUCCESS
+  FAILED
+  SKIPPED_DRYRUN
+  SKIPPED_DUPLICATE
+  SKIPPED_UNSUPPORTED
+}
+
 // ──────────────────────────────────────────────────────────────
 // MODELS — Identity & Membership
 // ──────────────────────────────────────────────────────────────
@@ -801,6 +822,49 @@ model CommissionPayout {
 
   @@index([leaseId])
   @@index([status])
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Automation (§ Week 32)
+// ──────────────────────────────────────────────────────────────
+
+/// Staff-defined automation rule. Actions execute at most once per
+/// (rule, triggerRef) — enforced by a unique index on executions.
+model AutomationRule {
+  id     String           @id @default(cuid())
+  name   String
+  trigger AutomationTrigger
+  action  AutomationAction
+  /// Action config: webhookUrl, noticeTitle template, etc.
+  config Json?
+  enabled Boolean          @default(true)
+  createdBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  executions AutomationExecution[]
+
+  @@index([trigger, enabled])
+}
+
+/// One row per attempted execution — doubles as execution history.
+model AutomationExecution {
+  id       String             @id @default(cuid())
+  ruleId   String
+  trigger  AutomationTrigger
+  refId    String
+  status   AutomationExecStatus
+  detail   Json?
+  error    String?
+  dryRun   Boolean            @default(false)
+
+  createdAt DateTime @default(now())
+
+  rule AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, refId])
+  @@index([createdAt])
 }
 
 // ──────────────────────────────────────────────────────────────

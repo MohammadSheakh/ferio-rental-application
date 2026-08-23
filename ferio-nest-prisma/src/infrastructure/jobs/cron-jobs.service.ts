@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ControlPlanePrismaService } from '../control-plane/control-plane-prisma.service';
 import { TenantDatabaseManager } from '../tenant/tenant-database.manager';
 import { MarketplacePrismaService } from '../marketplace/marketplace-prisma.service';
+import { AutomationService } from '../../features/automation/automation.service';
 import { SubscriptionLifecycleService } from '../subscriptions/subscription-lifecycle.service';
 import { InvoiceStatus } from '@prisma/tenant-client';
 import { ListingStatus } from '@prisma/marketplace-client';
@@ -15,6 +16,7 @@ export class CronJobsService {
     private readonly tenantDbManager: TenantDatabaseManager,
     private readonly subscriptions: SubscriptionLifecycleService,
     private readonly marketplacePrisma: MarketplacePrismaService,
+    private readonly automation: AutomationService,
   ) {}
 
   /**
@@ -35,17 +37,32 @@ export class CronJobsService {
       try {
         const db = await this.tenantDbManager.getTenantDatabase(org.id);
 
-        const result = await db.invoice.updateMany({
+        // Collect before marking so automations can reference each invoice.
+        const due = await db.invoice.findMany({
           where: {
             dueDate: { lt: now },
             status: { in: [InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID] },
           },
-          data: {
-            status: InvoiceStatus.OVERDUE,
-          },
+          select: { id: true, invoiceNumber: true },
+          take: 200,
         });
 
+        const result = await db.invoice.updateMany({
+          where: { id: { in: due.map((i2) => i2.id) } },
+          data: { status: InvoiceStatus.OVERDUE },
+        });
         totalMarkedOverdue += result.count;
+
+        for (const inv of due) {
+          await this.automation
+            .evaluate(org.id, 'INVOICE_OVERDUE', {
+              refId: inv.id,
+              vars: { refId: inv.invoiceNumber, invoiceNumber: inv.invoiceNumber },
+            })
+            .catch((err2: any) =>
+              this.logger.warn(`automation INVOICE_OVERDUE failed: ${err2?.message}`),
+            );
+        }
       } catch (error: any) {
         this.logger.error(`Failed overdue scan for org ${org.slug}: ${error.message}`);
       }

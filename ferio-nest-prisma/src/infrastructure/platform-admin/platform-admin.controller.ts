@@ -397,6 +397,20 @@ export class PlatformAdminController {
     return this.cronJobs.runListingExpiryScan();
   }
 
+  @Post('jobs/overdue-invoice-scan')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Mark past-due invoices OVERDUE across tenants' })
+  async runOverdueScan() {
+    return this.cronJobs.runOverdueInvoiceScan();
+  }
+
+  @Post('jobs/lease-expiry-scan')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Scan leases expiring within 30 days across tenants' })
+  async runLeaseExpiry() {
+    return this.cronJobs.runLeaseExpiryScan();
+  }
+
   @Post('jobs/subscription-past-due-scan')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark ACTIVE subscriptions past period-end as PAST_DUE (grace starts)' })

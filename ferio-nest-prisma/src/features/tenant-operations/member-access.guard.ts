@@ -100,6 +100,7 @@ export class ActiveMemberGuard implements CanActivate {
       throw new ForbiddenException('You are not an active member of this organization');
     }
     req.member = member;
+    (req as any).automationDb = db;
 
     // Reads: any ACTIVE member. Writes: domain role check.
     const method = req.method.toUpperCase();
