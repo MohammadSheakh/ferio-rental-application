@@ -4,7 +4,20 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
-import { CrmLeadStatus, CrmLeadSource, LeaseStatus, UnitStatus } from '@prisma/tenant-client';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  CommissionPayoutStatus,
+  CrmLeadStatus,
+  CrmLeadSource,
+  LeadViewingStatus,
+  LeaseStatus,
+  PaymentMethod,
+  UnitStatus,
+} from '@prisma/tenant-client';
 import { TenantDatabaseManager } from '../../infrastructure/tenant/tenant-database.manager';
 
 /** Allowed status transitions (linear pipeline + LOST from any open stage). */
@@ -185,6 +198,20 @@ export class TenantCrmService {
         data: { status: CrmLeadStatus.CONVERTED, convertedRenterId: renter.id },
       });
 
+      // Week 30 tail — commission payout becomes DUE automatically.
+      let payoutId: string | null = null;
+      if (commissionAmount != null && commissionAmount > 0) {
+        const payout = await tx.commissionPayout.create({
+          data: {
+            leaseId: lease.id,
+            brokerName: lead.brokerName ?? 'Broker',
+            amount: commissionAmount,
+            status: CommissionPayoutStatus.DUE,
+          },
+        });
+        payoutId = payout.id;
+      }
+
       await tx.tenantAuditEvent.create({
         data: {
           action: 'crm.lead_converted',
@@ -195,12 +222,130 @@ export class TenantCrmService {
             leaseId: lease.id,
             brokerName: lead.brokerName,
             commissionPct: input.brokerCommissionPct ?? null,
+            payoutId,
           },
         },
       });
 
-      return { leadId: lead.id, renterId: renter.id, leaseId: lease.id, commissionAmount };
+      return {
+        leadId: lead.id,
+        renterId: renter.id,
+        leaseId: lease.id,
+        commissionAmount,
+        payoutId,
+      };
     });
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // Viewings (§ Week 30 tail)
+  // ────────────────────────────────────────────────────────────
+
+  async scheduleViewing(
+    organizationId: string,
+    leadId: string,
+    input: { scheduledAt: string; notes?: string },
+  ) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    const lead = await db.crmLead.findUnique({
+      where: { id: leadId },
+      select: { id: true },
+    });
+    if (!lead) throw new NotFoundException('Lead not found');
+    return db.leadViewing.create({
+      data: {
+        leadId,
+        scheduledAt: new Date(input.scheduledAt),
+        notes: input.notes,
+      },
+    });
+  }
+
+  async listViewings(organizationId: string, leadId: string) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    return db.leadViewing.findMany({
+      where: { leadId },
+      orderBy: { scheduledAt: 'desc' },
+    });
+  }
+
+  async updateViewing(
+    organizationId: string,
+    viewingId: string,
+    changes: { status?: LeadViewingStatus; notes?: string; scheduledAt?: string },
+  ) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    return db.leadViewing.update({
+      where: { id: viewingId },
+      data: {
+        ...(changes.status ? { status: changes.status } : {}),
+        ...(changes.notes !== undefined ? { notes: changes.notes } : {}),
+        ...(changes.scheduledAt ? { scheduledAt: new Date(changes.scheduledAt) } : {}),
+      },
+    });
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // Commission payouts (§ Week 30 tail)
+  // ────────────────────────────────────────────────────────────
+
+  async listPayouts(organizationId: string, status?: CommissionPayoutStatus) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    return db.commissionPayout.findMany({
+      where: status ? { status } : undefined,
+      include: {
+        lease: {
+          select: {
+            id: true,
+            monthlyRent: true,
+            brokerCommissionPct: true,
+            unit: { select: { name: true, property: { select: { name: true } } } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /** Settle a DUE payout: record method/reference and mark PAID. */
+  async settlePayout(
+    organizationId: string,
+    payoutId: string,
+    input: { method: PaymentMethod; reference?: string; recordedBy?: string },
+  ) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+
+    const payout = await db.commissionPayout.findUnique({ where: { id: payoutId } });
+    if (!payout) throw new NotFoundException('Payout not found');
+    if (payout.status === CommissionPayoutStatus.PAID) {
+      throw new BadRequestException('Payout already settled');
+    }
+
+    const updated = await db.commissionPayout.update({
+      where: { id: payoutId },
+      data: {
+        status: CommissionPayoutStatus.PAID,
+        method: input.method,
+        reference: input.reference,
+        paidAt: new Date(),
+        recordedBy: input.recordedBy,
+      },
+    });
+
+    await db.tenantAuditEvent.create({
+      data: {
+        action: 'crm.payout_settled',
+        resourceType: 'CommissionPayout',
+        resourceId: payoutId,
+        metadata: {
+          amount: payout.amount,
+          method: input.method,
+          reference: input.reference ?? null,
+        } as any,
+      },
+    }).catch(() => {});
+
+    return updated;
   }
 
   /** Pipeline performance: counts per status + conversion rate. */

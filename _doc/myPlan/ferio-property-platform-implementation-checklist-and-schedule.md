@@ -1175,11 +1175,11 @@ Subscription
 
 - [x] broker leads
 - [x] inquiry attribution *(marketplace inquiries on org-published units auto-create deduped MARKETPLACE_INQUIRY leads — best-effort async)*
-- [ ] viewing
+- [x] viewing *(LeadViewing schedule/complete/no-show per lead, leasing-gated)*
 - [ ] listing attribution
 - [x] lease conversion
-- [x] commission *(pct/amount captured on lease)*
-- [ ] commission payment *(payout ledger pending)*
+- [x] commission *(pct/amount captured on lease; DUE payout auto-created at conversion)*
+- [x] commission payment *(CommissionPayout ledger — settle w/ method+reference → PAID; double-settle blocked)*
 - [x] performance reports
 
 ## Week 31 — Sale CRM

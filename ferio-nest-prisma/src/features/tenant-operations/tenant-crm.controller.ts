@@ -168,4 +168,65 @@ export class TenantCrmController {
   async report(@Req() req: any) {
     return this.crm.report(this.orgId(req));
   }
+
+  // ── Viewings (Week 30 tail) ──
+
+  @Post('leads/:leadId/viewings')
+  @UseGuards(JwtAuthGuard, ActiveMemberGuard, DomainWriteGuard)
+  @RequireMemberDomain('leasing')
+  @ApiOperation({ summary: 'Schedule a viewing for a lead' })
+  async scheduleViewing(
+    @Req() req: any,
+    @Param('leadId') leadId: string,
+    @Body() body: { scheduledAt: string; notes?: string },
+  ) {
+    if (!body?.scheduledAt) throw new BadRequestException('scheduledAt is required');
+    return this.crm.scheduleViewing(this.orgId(req), leadId, body);
+  }
+
+  @Get('leads/:leadId/viewings')
+  @ApiOperation({ summary: 'List viewings for a lead (newest first)' })
+  async listViewings(@Req() req: any, @Param('leadId') leadId: string) {
+    return this.crm.listViewings(this.orgId(req), leadId);
+  }
+
+  @Patch('viewings/:viewingId')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, ActiveMemberGuard, DomainWriteGuard)
+  @RequireMemberDomain('leasing')
+  @ApiOperation({ summary: 'Update viewing — status (COMPLETED/NO_SHOW/CANCELLED), notes, reschedule' })
+  async updateViewing(
+    @Req() req: any,
+    @Param('viewingId') viewingId: string,
+    @Body()
+    body: {
+      status?: 'SCHEDULED' | 'COMPLETED' | 'NO_SHOW' | 'CANCELLED';
+      notes?: string;
+      scheduledAt?: string;
+    },
+  ) {
+    return this.crm.updateViewing(this.orgId(req), viewingId, body);
+  }
+
+  // ── Commission payouts (Week 30 tail) ──
+
+  @Get('payouts')
+  @ApiOperation({ summary: 'Broker commission payouts (filter by status DUE/PAID)' })
+  async listPayouts(@Req() req: any, @Query('status') status?: 'DUE' | 'PAID') {
+    return this.crm.listPayouts(this.orgId(req), status);
+  }
+
+  @Post('payouts/:payoutId/settle')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(DomainWriteGuard)
+  @RequireMemberDomain('billing')
+  @ApiOperation({ summary: 'Settle a DUE payout — records method/reference and marks PAID' })
+  async settlePayout(
+    @Req() req: any,
+    @Param('payoutId') payoutId: string,
+    @Body() body: { method: string; reference?: string; recordedBy?: string },
+  ) {
+    if (!body?.method) throw new BadRequestException('method is required');
+    return this.crm.settlePayout(this.orgId(req), payoutId, body);
+  }
 }

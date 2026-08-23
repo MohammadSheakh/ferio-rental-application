@@ -223,6 +223,18 @@ enum CrmLeadStatus {
   LOST
 }
 
+enum LeadViewingStatus {
+  SCHEDULED
+  COMPLETED
+  NO_SHOW
+  CANCELLED
+}
+
+enum CommissionPayoutStatus {
+  DUE
+  PAID
+}
+
 // ──────────────────────────────────────────────────────────────
 // MODELS — Identity & Membership
 // ──────────────────────────────────────────────────────────────
@@ -462,6 +474,7 @@ model Lease {
   brokerName            String?
   brokerCommissionPct   Float?
   brokerCommissionAmount Float?
+  commissionPayouts     CommissionPayout[]
 
   // Renewal
   isAutoRenew   Boolean   @default(false)
@@ -742,11 +755,52 @@ model CrmLead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  convertedRenter Renter? @relation(fields: [convertedRenterId], references: [id])
+  convertedRenter Renter?   @relation(fields: [convertedRenterId], references: [id])
+  viewings        LeadViewing[]
 
   @@index([status])
   @@index([assignedTo])
   @@index([convertedRenterId])
+}
+
+/// Viewing appointment against a CRM lead (§ Week 30 tail).
+model LeadViewing {
+  id          String            @id @default(cuid())
+  leadId      String
+  scheduledAt DateTime
+  status      LeadViewingStatus @default(SCHEDULED)
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lead CrmLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([scheduledAt])
+}
+
+/// Broker commission payout — auto-created DUE at lease conversion,
+/// settled by staff with method/reference.
+model CommissionPayout {
+  id         String                 @id @default(cuid())
+  leaseId    String
+  brokerName String?
+  amount     Float
+  status     CommissionPayoutStatus @default(DUE)
+
+  method     PaymentMethod?
+  reference  String?
+  paidAt     DateTime?
+  recordedBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lease Lease @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+
+  @@index([leaseId])
+  @@index([status])
 }
 
 // ──────────────────────────────────────────────────────────────
