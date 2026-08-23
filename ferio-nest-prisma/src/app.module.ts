@@ -8,6 +8,7 @@ import { UserModule } from './features/user-management/user.module';
 import { MarketplaceModule } from './features/marketplace/marketplace.module';
 import { TenantOperationsModule } from './features/tenant-operations/tenant-operations.module';
 import { RenterPortalModule } from './features/renter-portal/renter-portal.module';
+import { OwnerPortalModule } from './features/owner-portal/owner-portal.module';
 import { PrismaModule } from '@app/database';
 import { BullMQModule } from '@app/queue';
 import { PlatformInfrastructureModule } from './infrastructure/platform-infrastructure.module';
@@ -34,6 +35,9 @@ import { IdentityModule } from './infrastructure/identity/identity.module';
 
     // ── Renter Portal (Week 28) ──
     RenterPortalModule,
+
+    // ── Unit Owner Portal (Week 29) ──
+    OwnerPortalModule,
 
     // ── Feature Modules ──
     AuthModule,

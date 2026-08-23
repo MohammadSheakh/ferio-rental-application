@@ -1158,16 +1158,18 @@ Subscription
 
 ## Week 29 — Unit Owner Portal
 
-- [ ] owned units
-- [ ] occupancy
-- [ ] expected rent
-- [ ] outstanding
-- [ ] renter
+> **v2.1 implementation:** `/owner/*` API live — identity-bound via UnitOwnership.ownerCentralUserId with cross-org fan-out. Portfolio snapshot (units, share %, co-owners, active lease/renter), expected-rent math by share, per-unit + portfolio outstanding, consolidated statements w/ receipts, maintenance visibility. UI in saas-web pending.
+
+- [x] owned units *(cross-org fan-out on ownership stakes)*
+- [x] occupancy *(active lease surfaced per unit)*
+- [x] expected rent *(share % × lease monthlyRent)*
+- [x] outstanding *(open invoices aggregated per unit)*
+- [x] renter *(name from active lease)*
 - [ ] owner utility responsibilities
 - [ ] maintenance payable
 - [ ] documents
-- [ ] statements
-- [ ] co-owner scoping
+- [x] statements *(consolidated incl. lines + receipts)*
+- [x] co-owner scoping *(co-owners + shares surfaced; my-share math)*
 
 ## Week 30 — Broker CRM
 
