@@ -1,0 +1,327 @@
+// ──────────────────────────────────────────────────────────────
+// FERIO MARKETPLACE PLANE — Prisma Schema
+// Central database for public property listings, search,
+// seller/broker profiles, inquiries, favorites, and moderation.
+// Searched by renters/buyers across ALL organizations.
+// ──────────────────────────────────────────────────────────────
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [postgis]
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../../node_modules/@prisma/marketplace-client"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+// ──────────────────────────────────────────────────────────────
+// ENUMS
+// ──────────────────────────────────────────────────────────────
+
+enum ListingPurpose {
+  RENT
+  SALE
+}
+
+enum ListingAssetType {
+  APARTMENT
+  HOUSE
+  ROOM
+  LAND
+  SHOP
+  OFFICE
+  WAREHOUSE
+  STORE_ROOM
+  COMMERCIAL_SPACE
+  BUILDING
+  OTHER
+}
+
+enum ListingStatus {
+  DRAFT
+  PENDING_REVIEW
+  ACTIVE
+  PAUSED
+  RENTED
+  SOLD
+  EXPIRED
+  REJECTED
+  ARCHIVED
+}
+
+enum SellerType {
+  OWNER
+  BROKER
+  AGENCY
+  DEVELOPER
+}
+
+enum AccountType {
+  INDIVIDUAL
+  OWNER
+  BROKER
+  AGENCY
+  DEVELOPER
+}
+
+enum InquiryStatus {
+  PENDING
+  RESPONDED
+  CLOSED
+  SPAM
+}
+
+enum ViewingStatus {
+  REQUESTED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum DocumentVisibility {
+  PUBLIC
+  VERIFIED_USERS
+  INTERESTED_BUYERS
+  PRIVATE
+  ADMIN_ONLY
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS
+// ──────────────────────────────────────────────────────────────
+
+/// Marketplace user account (anyone who registers on ferio.com)
+model MarketplaceAccount {
+  id          String      @id @default(cuid())
+  centralUserId String    @unique /// Links to central identity
+  accountType AccountType @default(INDIVIDUAL)
+  displayName String
+  phone       String?
+  email       String?
+  avatarUrl   String?
+  bio         String?
+
+  // Verification
+  isPhoneVerified Boolean @default(false)
+  isEmailVerified Boolean @default(false)
+  isIdentityVerified Boolean @default(false)
+  verificationBadge  String? /// VERIFIED | TRUSTED | PREMIUM
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  listings    PropertyListing[]
+  inquiriesSent   Inquiry[]  @relation("InquirySender")
+  inquiriesReceived Inquiry[] @relation("InquiryReceiver")
+  favorites   Favorite[]
+  viewingRequests ViewingRequest[]
+
+  @@index([centralUserId])
+  @@index([accountType])
+}
+
+/// Public property listing (rent or sale advertisement)
+model PropertyListing {
+  id          String           @id @default(cuid())
+  sellerId    String
+  purpose     ListingPurpose
+  assetType   ListingAssetType
+  sellerType  SellerType       @default(OWNER)
+  status      ListingStatus    @default(DRAFT)
+
+  // Core details
+  title       String
+  description String?
+  slug        String?          @unique
+
+  // Pricing
+  price          Float
+  priceNegotiable Boolean   @default(false)
+  rentFrequency  String?    /// MONTHLY | QUARTERLY | YEARLY (for rent)
+  availableFrom  DateTime?
+
+  // Specifications
+  bedrooms      Int?
+  bathrooms     Int?
+  floor         Int?
+  totalFloors   Int?
+  areaSqFt      Float?
+  landSizeKatha Float?    /// Bangladesh-specific land unit
+  parking       Int?       @default(0)
+  furnishing    String?    /// UNFURNISHED | SEMI_FURNISHED | FURNISHED
+
+  // Amenities (stored as JSON array)
+  amenities     String[]  @default([])
+
+  // ── Location ──
+  address       String?
+  area          String?    /// e.g. "Rampura", "Gulshan-2"
+  neighbourhood String?
+  district      String?    /// e.g. "Dhaka"
+  division      String?    /// e.g. "Dhaka Division"
+  postalCode    String?
+  latitude      Float?
+  longitude     Float?
+  googleMapUrl  String?
+
+  // PostGIS geometry column for geospatial queries
+  // Managed via prisma/marketplace/sql/ (generated column + GiST index),
+  // applied with `pnpm prisma:marketplace:sql`. Not Prisma-native.
+  // location      Unsupported("geometry(Point, 4326)")?
+
+  // ── Source tracking ──
+  /// If published from a SaaS tenant, track origin
+  sourceOrganizationId String?
+  sourceUnitId         String?
+
+  // ── Moderation state ──
+  rejectionReason String?
+
+  // Timestamps
+  publishedAt DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  seller   MarketplaceAccount @relation(fields: [sellerId], references: [id])
+  media    ListingMedia[]
+  documents ListingDocument[]
+  inquiries Inquiry[]
+  favorites Favorite[]
+  viewings  ViewingRequest[]
+  moderationDecisions ModerationDecision[]
+
+  @@index([purpose, status])
+  @@index([assetType, status])
+  @@index([area, status])
+  @@index([district, status])
+  @@index([price])
+  @@index([sellerId])
+  @@index([sourceOrganizationId, sourceUnitId])
+  @@index([status, publishedAt])
+}
+
+/// Listing images/videos
+model ListingMedia {
+  id        String @id @default(cuid())
+  listingId String
+  url       String
+  type      String @default("IMAGE") /// IMAGE | VIDEO | FLOOR_PLAN
+  order     Int    @default(0)
+  isCover   Boolean @default(false)
+  caption   String?
+
+  createdAt DateTime @default(now())
+
+  listing PropertyListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+}
+
+/// Sale/legal documents (land papers, deeds, etc.)
+model ListingDocument {
+  id         String             @id @default(cuid())
+  listingId  String
+  name       String             /// "RS Khatian", "Mutation Document", "Deed"
+  fileUrl    String
+  docType    String             /// DEED | KHATIAN | MUTATION | TAX_RECEIPT | RAJUK | OTHER
+  visibility DocumentVisibility @default(PRIVATE)
+
+  createdAt DateTime @default(now())
+
+  listing PropertyListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+}
+
+/// Inquiry from a potential renter/buyer to listing owner
+model Inquiry {
+  id         String        @id @default(cuid())
+  listingId  String
+  senderId   String
+  receiverId String
+  status     InquiryStatus @default(PENDING)
+  message    String?
+  phone      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  listing  PropertyListing    @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  sender   MarketplaceAccount @relation("InquirySender", fields: [senderId], references: [id])
+  receiver MarketplaceAccount @relation("InquiryReceiver", fields: [receiverId], references: [id])
+
+  @@index([listingId])
+  @@index([senderId])
+  @@index([receiverId])
+}
+
+/// Saved/favorited listings
+model Favorite {
+  id        String @id @default(cuid())
+  accountId String
+  listingId String
+
+  createdAt DateTime @default(now())
+
+  account MarketplaceAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  listing PropertyListing    @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, listingId])
+  @@index([accountId])
+}
+
+/// Viewing/visit request
+model ViewingRequest {
+  id        String        @id @default(cuid())
+  listingId String
+  requesterId String
+  status    ViewingStatus @default(REQUESTED)
+  preferredDate DateTime?
+  message   String?
+  phone     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  listing   PropertyListing    @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  requester MarketplaceAccount @relation(fields: [requesterId], references: [id])
+
+  @@index([listingId])
+  @@index([requesterId])
+}
+
+/// Moderation / abuse reports
+model ModerationReport {
+  id         String @id @default(cuid())
+  listingId  String?
+  reporterId String?
+  reason     String
+  details    String?
+  status     String @default("PENDING") /// PENDING | REVIEWED | ACTIONED | DISMISSED
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([listingId])
+}
+
+/// Moderator decisions on listings (approve / reject / takedown)
+model ModerationDecision {
+  id          String   @id @default(cuid())
+  listingId   String
+  decision    String   /// APPROVED | REJECTED | TAKEN_DOWN
+  reason      String?
+  moderatorId String?
+
+  createdAt DateTime @default(now())
+
+  listing PropertyListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+}

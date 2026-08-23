@@ -1,0 +1,113 @@
+
+flowchart TD
+    subgraph Client["🖥️ Client Layer"]
+        A[Web/Mobile Client]
+    end
+
+    subgraph API["🔌 API Gateway"]
+        B[AttachmentController]
+        C[AuthGuard]
+        D[TransformResponseInterceptor]
+        E[UseFileUploadPipeline Decorator]
+    end
+
+    subgraph Processing["⚙️ Processing Layer"]
+        F[FileUploadProcessingInterceptor]
+        G[Multer Memory Storage]
+        H[File Type Detection]
+        I[Validation Logic]
+    end
+
+    subgraph Strategy["📦 Strategy Pattern Layer"]
+        J[FileUploadStrategyFactory]
+        K{Strategy Selection}
+        L[CloudinaryStrategy]
+        M[S3Strategy]
+        N[DigitalOcean Strategy]
+    end
+
+    subgraph Cloud["☁️ Cloud Storage"]
+        O[Cloudinary CDN]
+        P[AWS S3 Bucket]
+        Q[DigitalOcean Spaces]
+    end
+
+    subgraph Service["🔧 Service Layer"]
+        R[AttachmentService]
+        S[GenericService CRUD]
+    end
+
+    subgraph Database["💾 Data Layer"]
+        T[(MongoDB Attachments Collection)]
+        U[(Redis Cache)]
+    end
+
+    %% Request Flow
+    A -->|POST /attachments/upload| B
+    B --> C
+    C -->|Authenticated| D
+    D --> E
+    E -->|Multipart Form Data| F
+    F --> G
+    G --> H
+    H --> I
+    I -->|Valid File| J
+    
+    %% Strategy Selection
+    J --> K
+    K -->|env: cloudinary| L
+    K -->|env: s3| M
+    K -->|env: digitalocean| N
+    
+    %% Cloud Upload
+    L -->|uploadFile| O
+    M -->|uploadFile| P
+    N -->|uploadFile| Q
+    
+    %% Response from Cloud
+    O -->|URL + publicId| R
+    P -->|URL + publicId| R
+    Q -->|URL + publicId| R
+    
+    %% Service Processing
+    R -->|Detect FileType| H
+    R -->|Create Record| S
+    S -->|Insert| T
+    R -->|Cache Write| U
+    
+    %% Read Flow
+    A -->|GET /attachments/:id| B
+    B -->|Check Cache| U
+    U -->|Cache Miss| R
+    R -->|Find| S
+    S -->|Query| T
+    T -->|Attachment Doc| R
+    R -->|Cache Set| U
+    R -->|Return| D
+    D -->|Transformed Response| A
+    
+    %% Delete Flow
+    A -->|DELETE /attachments/:id| B
+    B --> R
+    R -->|Delete File| L
+    R -->|Soft Delete| S
+    S -->|Update isDeleted| T
+    R -->|Invalidate Cache| U
+    
+    %% Styling
+    classDef client fill:#000,stroke:#0066cc,stroke-width:2px
+    classDef api fill:#000,stroke:#ff8c00,stroke-width:2px
+    classDef processing fill:#000,stroke:#666,stroke-width:2px
+    classDef strategy fill:#000,stroke:#2e7d32,stroke-width:2px
+    classDef cloud fill:#000,stroke:#7b1fa2,stroke-width:2px
+    classDef service fill:#000,stroke:#fbc02d,stroke-width:2px
+    classDef database fill:#000,stroke:#c62828,stroke-width:2px
+    
+    class A client
+    class B,C,D,E api
+    class F,G,H,I processing
+    class J,K,L,M,N strategy
+    class O,P,Q cloud
+    class R,S service
+    class T,U database
+

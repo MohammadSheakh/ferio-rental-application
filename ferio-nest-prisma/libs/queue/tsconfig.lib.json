@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../../dist/libs/queue",
+    "declaration": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/processors/**"]
+}

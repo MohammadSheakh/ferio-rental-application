@@ -1,0 +1,150 @@
+
+sequenceDiagram
+    autonumber
+    participant Client
+    participant Controller as AttachmentController
+    participant AuthGuard
+    participant Interceptor as FileUploadProcessingInterceptor
+    participant Factory as FileUploadStrategyFactory
+    participant Strategy as CloudinaryStrategy
+    participant Service as AttachmentService
+    participant MongoDB
+    participant Redis
+
+    Note over Client,Redis: 📤 Upload Single Attachment Flow
+
+    Client->>Controller: POST /attachments/upload<br/>(multipart/form-data)
+    activate Controller
+    
+    Controller->>AuthGuard: Validate JWT Token
+    activate AuthGuard
+    AuthGuard-->>Controller: UserPayload (authenticated)
+    deactivate AuthGuard
+    
+    Controller->>Interceptor: Process File Upload
+    activate Interceptor
+    
+    Interceptor->>Interceptor: Multer Memory Storage
+    Interceptor->>Interceptor: Validate MIME Type & Size
+    
+    Interceptor->>Factory: Get Upload Strategy
+    activate Factory
+    Factory->>Factory: Check FILE_UPLOAD_STRATEGY env
+    Factory-->>Interceptor: IFileUploadStrategy (Cloudinary)
+    deactivate Factory
+    
+    Interceptor->>Strategy: uploadFile(file, folder)
+    activate Strategy
+    Strategy->>Strategy: Upload to Cloudinary API
+    Strategy-->>Interceptor: { url, publicId, size, mimeType }
+    deactivate Strategy
+    deactivate Interceptor
+    
+    Interceptor-->>Controller: req.uploadedFiles = [attachmentIds]
+    
+    Controller->>Service: uploadSingleAttachment()
+    activate Service
+    
+    Service->>Service: Detect File Type (image/video/document)
+    Service->>Service: Create Attachment Document
+    
+    Service->>MongoDB: Insert Attachment Record
+    activate MongoDB
+    MongoDB-->>Service: { _id, attachment, attachmentType, ... }
+    deactivate MongoDB
+    
+    Service->>Redis: SET attachment:{id} (TTL: 300s)
+    activate Redis
+    Redis-->>Service: OK
+    deactivate Redis
+    
+    Service-->>Controller: Attachment ID
+    deactivate Service
+    
+    Controller->>Controller: TransformResponseInterceptor
+    Controller-->>Client: { success: true, attachmentIds: [...] }
+    deactivate Controller
+
+    Note over Client,Redis: 📥 Get Attachments Flow (with Caching)
+
+    Client->>Controller: GET /attachments/by-entity?<br/>attachedToType=task&attachedToId=123
+    activate Controller
+    
+    Controller->>Service: getAttachmentsByEntity()
+    activate Service
+    
+    Service->>Redis: GET attachment:{id}
+    activate Redis
+    Redis-->>Service: null (Cache Miss)
+    deactivate Redis
+    
+    Service->>MongoDB: Find { attachedToType, attachedToId, isDeleted: false }
+    activate MongoDB
+    MongoDB-->>Service: [AttachmentDocument[]]
+    deactivate MongoDB
+    
+    Service->>Redis: SET attachment:{id} (TTL: 300s)
+    activate Redis
+    Redis-->>Service: OK
+    deactivate Redis
+    
+    Service-->>Controller: [AttachmentDocument[]]
+    deactivate Service
+    
+    Controller-->>Client: { data: [attachments] }
+    deactivate Controller
+
+    Note over Client,Redis: 🗑️ Delete Attachment Flow
+
+    Client->>Controller: DELETE /attachments/:id
+    activate Controller
+    
+    Controller->>Service: deleteAttachment(id)
+    activate Service
+    
+    Service->>Service: Find Attachment by ID
+    Service->>MongoDB: FindOne { _id: id }
+    activate MongoDB
+    MongoDB-->>Service: AttachmentDocument
+    deactivate MongoDB
+    
+    Service->>Strategy: deleteFile(publicId)
+    activate Strategy
+    Strategy->>Strategy: Delete from Cloudinary
+    Strategy-->>Service: Success
+    deactivate Strategy
+    
+    Service->>MongoDB: UpdateOne { isDeleted: true, deletedAt: now }
+    activate MongoDB
+    MongoDB-->>Service: Acknowledged
+    deactivate MongoDB
+    
+    Service->>Redis: DEL attachment:{id}
+    activate Redis
+    Redis-->>Service: OK
+    deactivate Redis
+    
+    Service-->>Controller: Success
+    deactivate Service
+    
+    Controller-->>Client: { message: "Attachment deleted successfully" }
+    deactivate Controller
+
+    Note over Client,Redis: ⚙️ Strategy Pattern Configuration
+
+    rect rgb(240, 240, 240)
+        Note over Factory: Environment Configuration
+        Factory->>Factory: FILE_UPLOAD_STRATEGY = 'cloudinary' (default)<br/>or 's3' or 'digitalocean'
+        
+        alt Strategy: cloudinary
+            Factory->>Strategy: CloudinaryStrategy
+            Note over Strategy: Uses Cloudinary API<br/>Supports: images, videos
+        else Strategy: s3
+            Factory->>Strategy: S3Strategy
+            Note over Strategy: Uses AWS SDK<br/>Supports: all file types
+        else Strategy: digitalocean
+            Factory->>Strategy: S3Strategy
+            Note over Strategy: Uses DO Spaces API<br/>S3-compatible
+        end
+    end
+

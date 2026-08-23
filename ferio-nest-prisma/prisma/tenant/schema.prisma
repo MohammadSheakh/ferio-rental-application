@@ -1,0 +1,825 @@
+// ──────────────────────────────────────────────────────────────
+// FERIO TENANT DATA PLANE — Prisma Schema Template
+// Each subscribed SaaS organization gets their own PostgreSQL
+// database provisioned from this schema template.
+// Contains: properties, buildings, units, ownership, renters,
+// leases, billing, utilities, maintenance, staff, documents.
+// ──────────────────────────────────────────────────────────────
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../node_modules/@prisma/tenant-client"
+}
+
+// ──────────────────────────────────────────────────────────────
+// ENUMS
+// ──────────────────────────────────────────────────────────────
+
+enum PropertyType {
+  RESIDENTIAL_BUILDING
+  INDIVIDUAL_APARTMENT
+  COMMERCIAL_BUILDING
+  OFFICE
+  SHOP
+  HOUSE
+  WAREHOUSE
+  MIXED_USE
+}
+
+enum PropertyStatus {
+  DRAFT
+  ACTIVE
+  MAINTENANCE
+  INACTIVE
+}
+
+enum UnitType {
+  APARTMENT
+  SHOP
+  OFFICE
+  ROOM
+  STORE_ROOM
+  WAREHOUSE_UNIT
+  COMMERCIAL_UNIT
+  OTHER
+}
+
+enum UnitStatus {
+  DRAFT
+  AVAILABLE
+  LISTED
+  RESERVED
+  OCCUPIED
+  NOTICE_GIVEN
+  MOVE_OUT_PENDING
+  MAINTENANCE_HOLD
+  BLOCKED
+}
+
+enum MemberRole {
+  ORGANIZATION_OWNER
+  PROPERTY_OWNER
+  UNIT_OWNER
+  PROPERTY_MANAGER
+  BUILDING_MANAGER
+  ACCOUNTANT
+  LEASING_OFFICER
+  MAINTENANCE_MANAGER
+  CARETAKER
+  VIEWER
+}
+
+enum MemberStatus {
+  INVITED
+  ACTIVE
+  DISABLED
+}
+
+enum LeaseStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PENDING_SIGNATURE
+  SIGNED
+  ACTIVE
+  NOTICE_GIVEN
+  EXPIRING
+  EXPIRED
+  TERMINATED
+  CANCELLED
+}
+
+enum ChargeCategory {
+  RENT
+  SERVICE_CHARGE
+  ELECTRICITY
+  WATER
+  GAS
+  INTERNET
+  SECURITY
+  LIFT
+  CLEANING
+  GENERATOR
+  PARKING
+  MAINTENANCE
+  OTHER
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  VOID
+  WRITTEN_OFF
+}
+
+enum PaymentMethod {
+  BKASH
+  NAGAD
+  BANK
+  CASH
+  CHEQUE
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  REPORTED
+  VERIFIED
+  REJECTED
+  SETTLED
+  REVERSED
+}
+
+enum MaintenanceScope {
+  BUILDING
+  UNIT
+  COMMON_AREA
+}
+
+enum MaintenancePayer {
+  RENTER
+  UNIT_OWNER
+  BUILDING_OWNER
+  BUILDING_MANAGEMENT
+  SHARED
+}
+
+enum MaintenanceUrgency {
+  EMERGENCY
+  URGENT
+  NORMAL
+  LOW
+}
+
+enum MaintenanceStatus {
+  OPEN
+  TRIAGED
+  ASSIGNED
+  SCHEDULED
+  IN_PROGRESS
+  WAITING_PARTS
+  RESOLVED
+  CONFIRMED
+  CLOSED
+  REOPENED
+  CANCELLED
+}
+
+enum UtilityScope {
+  BUILDING
+  UNIT
+  COMMON_AREA
+}
+
+enum UtilityResponsibility {
+  RENTER
+  UNIT_OWNER
+  BUILDING_MANAGEMENT
+  SHARED
+  DIRECT_PROVIDER
+}
+
+enum AllocationMethod {
+  FIXED
+  EQUAL
+  PERCENTAGE
+  OCCUPANCY
+  AREA
+  SUBMETER
+  MANUAL
+}
+
+enum OutboxEventStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+// ──────────────────────────────────────────────────────────────
+// ENUMS — Broker CRM (§ Week 30)
+// ──────────────────────────────────────────────────────────────
+
+enum CrmLeadSource {
+  MARKETPLACE_INQUIRY
+  WALK_IN
+  REFERRAL
+  PHONE
+  OTHER
+}
+
+enum CrmLeadStatus {
+  NEW
+  CONTACTED
+  VIEWING_SCHEDULED
+  NEGOTIATING
+  CONVERTED
+  LOST
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Identity & Membership
+// ──────────────────────────────────────────────────────────────
+
+/// Organization member (staff/owner in this tenant workspace)
+model Member {
+  id            String       @id @default(cuid())
+  centralUserId String       /// Links to central identity
+  role          MemberRole
+  status        MemberStatus @default(INVITED)
+  displayName   String
+  email         String?
+  phone         String?
+
+  // Scope: which properties/buildings/units this member can access
+  scopePropertyIds  String[] @default([])
+  scopeBuildingIds  String[] @default([])
+  scopeUnitIds      String[] @default([])
+
+  invitedAt  DateTime  @default(now())
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([centralUserId])
+  @@index([role])
+  @@index([status])
+}
+
+/// Pending membership invitation. Single-use token with expiry;
+/// acceptance activates (or creates) the Member row.
+model MemberInvite {
+  id          String     @id @default(cuid())
+  email       String
+  role        MemberRole
+  token       String     @unique
+  invitedBy   String?    /// centralUserId of inviter
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([email])
+  @@index([token])
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Property / Building / Unit
+// ──────────────────────────────────────────────────────────────
+
+model Property {
+  id          String         @id @default(cuid())
+  name        String
+  type        PropertyType
+  status      PropertyStatus @default(DRAFT)
+  address     String?
+  area        String?
+  district    String?
+  latitude    Float?
+  longitude   Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  buildings Building[]
+  units     Unit[]        /// Units directly under property (no building)
+  ownership PropertyOwnership[]
+
+  @@index([status])
+}
+
+model Building {
+  id         String @id @default(cuid())
+  propertyId String
+  name       String
+  totalFloors Int?
+  address    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  units    Unit[]
+
+  @@index([propertyId])
+}
+
+model Unit {
+  id         String     @id @default(cuid())
+  propertyId String
+  buildingId String?
+  name       String     /// e.g. "A-4", "Shop #3"
+  type       UnitType
+  status     UnitStatus @default(DRAFT)
+
+  floor      Int?
+  bedrooms   Int?
+  bathrooms  Int?
+  areaSqFt   Float?
+  parking    Int?       @default(0)
+
+  // Marketplace publishing state
+  isPublished         Boolean   @default(false)
+  marketplaceListingId String?  /// Reference to marketplace listing ID
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property  Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  building  Building? @relation(fields: [buildingId], references: [id])
+  ownership UnitOwnership[]
+  leases    Lease[]
+  billingAccount BillingAccount?
+  maintenanceRequests MaintenanceRequest[]
+  utilityAccounts UtilityAccount[]
+
+  @@index([propertyId])
+  @@index([buildingId])
+  @@index([status])
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Ownership
+// ──────────────────────────────────────────────────────────────
+
+model PropertyOwnership {
+  id         String @id @default(cuid())
+  propertyId String
+  ownerName  String
+  ownerCentralUserId String? /// Links to central identity if registered
+  ownerPhone String?
+  ownerEmail String?
+  sharePercent Float @default(100)
+  isPrimary  Boolean @default(true)
+
+  effectiveFrom DateTime @default(now())
+  effectiveTo   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+}
+
+model UnitOwnership {
+  id       String @id @default(cuid())
+  unitId   String
+  ownerName String
+  ownerCentralUserId String?
+  ownerPhone String?
+  ownerEmail String?
+  sharePercent Float @default(100)
+  isPrimary  Boolean @default(true)
+
+  // Payment destination for this owner's share
+  paymentMethod      PaymentMethod?
+  bkashNumber        String?
+  nagadNumber        String?
+  bankAccountName    String?
+  bankAccountNumber  String?
+  bankName           String?
+  bankBranchName     String?
+  paymentInstructions String?
+
+  effectiveFrom DateTime @default(now())
+  effectiveTo   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@index([unitId])
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Renter & Leasing
+// ──────────────────────────────────────────────────────────────
+
+model Renter {
+  id            String  @id @default(cuid())
+  centralUserId String? /// Optional: links to central identity
+  name          String
+  email         String?
+  phone         String?
+  nidNumber     String?
+  profession    String?
+  emergencyContact String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leases      Lease[]
+  guarantors  Guarantor[]
+
+  @@index([phone])
+  @@index([email])
+}
+
+model Guarantor {
+  id       String @id @default(cuid())
+  renterId String
+  name     String
+  phone    String?
+  relation String? /// FAMILY | EMPLOYER | PREVIOUS_LANDLORD | OTHER
+  nidNumber String?
+  address  String?
+
+  createdAt DateTime @default(now())
+
+  renter Renter @relation(fields: [renterId], references: [id], onDelete: Cascade)
+
+  @@index([renterId])
+}
+
+model Lease {
+  id       String      @id @default(cuid())
+  unitId   String
+  renterId String
+  status   LeaseStatus @default(DRAFT)
+
+  startDate     DateTime
+  endDate       DateTime
+  monthlyRent   Float
+  securityDeposit Float?
+  advanceMonths Int?       @default(0)
+
+  // Occupancy
+  occupantCount Int?
+  occupantNames String[]  @default([])
+
+  // Broker attribution & commission (§ Week 30)
+  brokerName            String?
+  brokerCommissionPct   Float?
+  brokerCommissionAmount Float?
+
+  // Renewal
+  isAutoRenew   Boolean   @default(false)
+  renewalTermMonths Int?
+
+  activatedAt  DateTime?
+  terminatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  unit   Unit   @relation(fields: [unitId], references: [id])
+  renter Renter @relation(fields: [renterId], references: [id])
+
+  @@index([unitId])
+  @@index([renterId])
+  @@index([status])
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Billing & Payments
+// ──────────────────────────────────────────────────────────────
+
+model BillingAccount {
+  id     String @id @default(cuid())
+  unitId String @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  unit     Unit      @relation(fields: [unitId], references: [id])
+  charges  ChargeDefinition[]
+  invoices Invoice[]
+
+  @@index([unitId])
+}
+
+model ChargeDefinition {
+  id               String        @id @default(cuid())
+  billingAccountId String
+  category         ChargeCategory
+  label            String        /// e.g. "Monthly Rent", "DESCO Electricity"
+  amount           Float
+  isRecurring      Boolean       @default(true)
+
+  // Who receives this money
+  beneficiaryName  String?
+  beneficiaryType  String?       /// UNIT_OWNER | BUILDING_MANAGEMENT | PROVIDER | OTHER
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  billingAccount BillingAccount @relation(fields: [billingAccountId], references: [id], onDelete: Cascade)
+
+  @@index([billingAccountId])
+}
+
+model Invoice {
+  id               String        @id @default(cuid())
+  billingAccountId String
+  invoiceNumber    String        @unique
+  /// Calendar period identity (e.g. "2026-09") — makes generation
+  /// idempotent per billing account per month (§Week 15).
+  periodKey        String?
+  status           InvoiceStatus @default(DRAFT)
+  periodStart      DateTime
+  periodEnd        DateTime
+  totalAmount      Float
+  paidAmount       Float         @default(0)
+  dueDate          DateTime
+
+  issuedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  billingAccount BillingAccount @relation(fields: [billingAccountId], references: [id])
+  lines          InvoiceLine[]
+  payments       Payment[]
+
+  @@unique([billingAccountId, periodKey])
+  @@index([billingAccountId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+model InvoiceLine {
+  id        String        @id @default(cuid())
+  invoiceId String
+  category  ChargeCategory
+  label     String
+  amount    Float
+
+  // Beneficiary routing
+  beneficiaryName String?
+  beneficiaryType String?
+
+  createdAt DateTime @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  invoiceId String
+  method    PaymentMethod
+  status    PaymentStatus @default(PENDING)
+  amount    Float
+  reference String?       /// bKash TxnID, bank ref, etc.
+  proofUrl  String?
+  verifiedBy String?
+  /// Issued when a payment is verified — the renter-facing receipt ID.
+  receiptNumber String?
+  rejectionReason String?
+  notes     String?
+
+  paidAt     DateTime?
+  verifiedAt DateTime?
+  reversedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([invoiceId])
+  @@index([status])
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Utilities
+// ──────────────────────────────────────────────────────────────
+
+model UtilityAccount {
+  id       String       @id @default(cuid())
+  unitId   String?
+  scope    UtilityScope
+  type     String       /// ELECTRICITY | WATER | GAS | INTERNET | GENERATOR | OTHER
+  provider String?      /// DESCO | DPDC | WASA | Titas
+  accountNumber String?
+  responsibility UtilityResponsibility @default(RENTER)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  unit     Unit?    @relation(fields: [unitId], references: [id])
+  meters   Meter[]
+  bills    UtilityBill[]
+
+  @@index([unitId])
+}
+
+model Meter {
+  id               String @id @default(cuid())
+  utilityAccountId String
+  meterNumber      String?
+  location         String?
+
+  createdAt DateTime @default(now())
+
+  utilityAccount UtilityAccount @relation(fields: [utilityAccountId], references: [id], onDelete: Cascade)
+  readings       MeterReading[]
+
+  @@index([utilityAccountId])
+}
+
+model MeterReading {
+  id              String @id @default(cuid())
+  meterId         String
+  previousReading Float
+  currentReading  Float
+  consumption     Float
+  readingDate     DateTime
+  readerName      String?
+  photoUrl        String?
+  notes           String?
+
+  createdAt DateTime @default(now())
+
+  meter Meter @relation(fields: [meterId], references: [id], onDelete: Cascade)
+
+  @@index([meterId])
+  @@index([readingDate])
+}
+
+model UtilityBill {
+  id               String @id @default(cuid())
+  utilityAccountId String
+  periodStart      DateTime
+  periodEnd        DateTime
+  totalAmount      Float
+  allocationMethod AllocationMethod @default(EQUAL)
+
+  createdAt DateTime @default(now())
+
+  utilityAccount UtilityAccount @relation(fields: [utilityAccountId], references: [id], onDelete: Cascade)
+
+  @@index([utilityAccountId])
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Maintenance
+// ──────────────────────────────────────────────────────────────
+
+model MaintenanceRequest {
+  id       String             @id @default(cuid())
+  unitId   String?
+  scope    MaintenanceScope
+  urgency  MaintenanceUrgency @default(NORMAL)
+  status   MaintenanceStatus  @default(OPEN)
+  payer    MaintenancePayer   @default(BUILDING_MANAGEMENT)
+
+  title    String
+  description String?
+  photoUrls String[] @default([])
+
+  reportedBy     String?
+  reportedByName String?
+
+  estimatedCost Float?
+  actualCost    Float?
+
+  resolvedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  unit       Unit?       @relation(fields: [unitId], references: [id])
+  workOrders WorkOrder[]
+
+  @@index([unitId])
+  @@index([status])
+  @@index([urgency])
+}
+
+model WorkOrder {
+  id                   String @id @default(cuid())
+  maintenanceRequestId String
+  assignedTo           String? /// Crew member or vendor name
+  assignedPhone        String?
+  status               String  @default("ASSIGNED") /// ASSIGNED | IN_PROGRESS | COMPLETED | CANCELLED
+  notes                String?
+  cost                 Float?
+  beforePhotoUrl       String?
+  afterPhotoUrl        String?
+
+  scheduledDate DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  request MaintenanceRequest @relation(fields: [maintenanceRequestId], references: [id], onDelete: Cascade)
+
+  @@index([maintenanceRequestId])
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Broker CRM (§ Week 30)
+// ──────────────────────────────────────────────────────────────
+
+/// Prospective renter pipeline. Conversion links to a real Renter row.
+model CrmLead {
+  id       String        @id @default(cuid())
+  source   CrmLeadSource @default(OTHER)
+  name     String
+  phone    String?
+  email    String?
+
+  interestedUnitId String?
+  /// centralUserId of the assigned member (leasing officer etc.)
+  assignedTo       String?
+  brokerName       String?
+
+  status            CrmLeadStatus @default(NEW)
+  convertedRenterId String?
+  lostReason        String?
+  notes             String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([assignedTo])
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Communications (§ Week 28)
+// ──────────────────────────────────────────────────────────────
+
+/// Organization or unit-targeted announcements shown in the Renter Portal.
+model Notice {
+  id     String  @id @default(cuid())
+  title  String
+  body   String?
+  /// NULL = organization-wide; otherwise visible to that unit's renters only.
+  unitId String?
+  postedBy String?
+
+  createdAt DateTime @default(now())
+
+  @@index([unitId])
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Cross-Plane Event Outbox
+// ──────────────────────────────────────────────────────────────
+
+/// Transactional outbox: events written in the SAME tenant-DB
+/// transaction as the state change, then asynchronously projected
+/// to the central marketplace by MarketplaceProjectionWorker.
+/// Guarantees at-least-once delivery without unsafe dual writes.
+model TenantOutboxEvent {
+  id          String            @id @default(cuid())
+  eventType   String            /// unit.listing_published | unit.listing_updated | unit.listing_unpublished | unit.listing_marked_rented
+  aggregateId String            /// Unit ID
+  payload     Json              /// Full projection snapshot needed by the consumer
+
+  status      OutboxEventStatus @default(PENDING)
+  attempts    Int               @default(0)
+  lastError   String?
+  /// Earliest time the worker may pick this event (exponential backoff)
+  availableAt DateTime          @default(now())
+  processedAt DateTime?
+  createdAt   DateTime          @default(now())
+
+  @@index([status, availableAt])
+  @@index([aggregateId])
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Documents & Audit
+// ──────────────────────────────────────────────────────────────
+
+model TenantDocument {
+  id           String @id @default(cuid())
+  category     String /// PROPERTY | LEASE | PAYMENT | MAINTENANCE | INSPECTION | OTHER
+  name         String
+  fileUrl      String
+  attachedToType String?
+  attachedToId   String?
+
+  uploadedBy String?
+
+  createdAt DateTime @default(now())
+
+  @@index([category])
+  @@index([attachedToType, attachedToId])
+}
+
+model TenantAuditEvent {
+  id          String @id @default(cuid())
+  actorId     String?
+  action      String
+  resourceType String
+  resourceId  String?
+  metadata    Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([action])
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+}

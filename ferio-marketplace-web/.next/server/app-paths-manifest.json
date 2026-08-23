@@ -1,0 +1,10 @@
+{
+  "/_global-error/page": "app/_global-error/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/icon.svg/route": "app/icon.svg/route.js",
+  "/listings/[id]/page": "app/listings/[id]/page.js",
+  "/login/page": "app/login/page.js",
+  "/manifest.webmanifest/route": "app/manifest.webmanifest/route.js",
+  "/page": "app/page.js",
+  "/renter/page": "app/renter/page.js"
+}

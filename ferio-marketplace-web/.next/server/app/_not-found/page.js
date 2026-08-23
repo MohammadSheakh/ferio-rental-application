@@ -1,0 +1,12 @@
+var R=require("../../chunks/ssr/[turbopack]_runtime.js")("server/app/_not-found/page.js")
+R.c("server/chunks/ssr/[root-of-the-server]__0p5yc2h._.js")
+R.c("server/chunks/ssr/0uw6_next_dist_1n-y36n._.js")
+R.c("server/chunks/ssr/[root-of-the-server]__01-19zp._.js")
+R.c("server/chunks/ssr/[root-of-the-server]__11bj6cd._.js")
+R.c("server/chunks/ssr/ferio-marketplace-web_0tzeg-n._.js")
+R.c("server/chunks/ssr/0uw6_next_dist_client_components_1zreglu._.js")
+R.c("server/chunks/ssr/0uw6_next_dist_client_components_builtin_forbidden_0zoqah_.js")
+R.c("server/chunks/ssr/0uw6_next_dist_client_components_builtin_unauthorized_029h0xr.js")
+R.c("server/chunks/ssr/ferio-marketplace-web__next-internal_server_app__not-found_page_actions_0n6y9kb.js")
+R.m(12019)
+module.exports=R.m(12019).exports

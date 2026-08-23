@@ -1,0 +1,306 @@
+// Source: rental.module/rental_enums.prisma
+
+enum RentalOrgStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+enum RentalMemberStatus {
+  INVITED
+  ACTIVE
+  DISABLED
+}
+
+enum RentalDelegationStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+enum RentalOwnerType {
+  INDIVIDUAL
+  CORPORATE
+}
+
+enum RentalPropertyType {
+  RESIDENTIAL_BUILDING
+  INDIVIDUAL_APARTMENT
+  COMMERCIAL_BUILDING
+  OFFICE
+  SHOP
+  HOUSE
+  WAREHOUSE
+  MIXED_USE
+}
+
+enum RentalPropertyStatus {
+  DRAFT
+  ACTIVE
+  MAINTENANCE
+  INACTIVE
+}
+
+enum RentalUnitType {
+  STUDIO
+  ONE_BEDROOM
+  TWO_BEDROOM
+  THREE_BEDROOM
+  FOUR_PLUS_BEDROOM
+  OFFICE_SPACE
+  RETAIL_SHOP
+  WAREHOUSE_BAY
+  CUSTOM
+}
+
+enum RentalUnitStatus {
+  DRAFT
+  AVAILABLE
+  RESERVED
+  OCCUPIED
+  NOTICE_GIVEN
+  MOVE_OUT_PENDING
+  MAINTENANCE_HOLD
+  BLOCKED
+}
+
+enum RentalLeadSource {
+  WALK_IN
+  WEBSITE
+  FACEBOOK
+  WHATSAPP
+  AGENT
+  REFERRAL
+  BIKROY
+  PHONE
+  OTHER
+}
+
+enum RentalLeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  VIEWING_SCHEDULED
+  VIEWING_COMPLETED
+  INTERESTED
+  APPLICATION_SUBMITTED
+  WON
+  LOST
+  ARCHIVED
+}
+
+enum RentalViewingStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum RentalApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  DOCUMENT_PENDING
+  VERIFICATION
+  APPROVED
+  CONDITIONALLY_APPROVED
+  REJECTED
+  WITHDRAWN
+  EXPIRED
+}
+
+enum RentalGuarantorType {
+  FAMILY
+  EMPLOYER
+  PREVIOUS_LANDLORD
+  COMMUNITY_LEADER
+  OTHER
+}
+
+enum RentalVerificationType {
+  NID_MANUAL
+  PHONE
+  EMPLOYER_CONTACT
+  PREVIOUS_LANDLORD_CONTACT
+  GUARANTOR_CONTACT
+  INCOME_PROOF
+  PERMANENT_ADDRESS
+  EMERGENCY_CONTACT
+}
+
+enum RentalVerificationStatus {
+  PENDING
+  VERIFIED
+  FAILED
+  WAIVED
+}
+
+enum RentalLeaseStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PENDING_SIGNATURE
+  SIGNED
+  ACTIVE
+  NOTICE_GIVEN
+  EXPIRING
+  EXPIRED
+  TERMINATED
+  CANCELLED
+}
+
+enum RentalLeasePartyRole {
+  PRIMARY_TENANT
+  CO_TENANT
+  GUARANTOR
+  AUTHORIZED_OCCUPANT
+}
+
+enum RentalBillingFrequency {
+  MONTHLY
+  QUARTERLY
+  BI_ANNUAL
+  ANNUAL
+  CUSTOM
+}
+
+enum RentalBillingAccountStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum RentalChargeCategory {
+  RENT
+  SERVICE_CHARGE
+  ELECTRICITY
+  WATER
+  GAS
+  INTERNET
+  PARKING
+  MAINTENANCE
+  LATE_FEE
+  OTHER
+  DISCOUNT
+  ADJUSTMENT
+}
+
+enum RentalInvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  VOID
+  WRITTEN_OFF
+}
+
+enum RentalPaymentMethod {
+  BKASH
+  NAGAD
+  ROCKET
+  BANK_TRANSFER
+  CASH
+  CHEQUE
+  OTHER_MFS
+}
+
+enum RentalCashVerificationStatus {
+  RECORDED
+  PENDING_VERIFICATION
+  VERIFIED
+  REJECTED
+}
+
+enum RentalLedgerTransactionType {
+  CHARGE
+  PAYMENT
+  ALLOCATION
+  ADJUSTMENT
+  CREDIT
+  REFUND
+  DEPOSIT_HOLD
+  DEPOSIT_RELEASE
+}
+
+enum RentalDepositStatus {
+  HELD
+  PARTIALLY_REFUNDED
+  FULLY_REFUNDED
+  FORFEITED
+}
+
+enum RentalDepositTxType {
+  INITIAL_DEPOSIT
+  DEDUCTION_DAMAGE
+  DEDUCTION_UTILITY
+  DEDUCTION_UNPAID_RENT
+  REFUND
+  ADJUSTMENT
+}
+
+enum RentalMaintenanceUrgency {
+  EMERGENCY
+  URGENT
+  NORMAL
+  LOW
+}
+
+enum RentalMaintenanceCategory {
+  PLUMBING
+  ELECTRICAL
+  PAINT
+  APPLIANCE
+  STRUCTURAL
+  SECURITY
+  CLEANING
+  HVAC
+  OTHER
+}
+
+enum RentalMaintenanceStatus {
+  OPEN
+  TRIAGED
+  ASSIGNED
+  SCHEDULED
+  IN_PROGRESS
+  WAITING_PARTS
+  RESOLVED
+  TENANT_CONFIRMED
+  CLOSED
+  REOPENED
+  CANCELLED
+}
+
+enum RentalWorkOrderStatus {
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  REJECTED
+}
+
+enum RentalDocumentCategory {
+  PROPERTY
+  OWNER
+  TENANT
+  APPLICATION
+  LEASE
+  MAINTENANCE
+  PAYMENT
+  INSPECTION
+  VENDOR
+}
+
+enum RentalListingPurpose {
+  FOR_RENT
+  FOR_SALE
+}
+
+enum RentalListingCategory {
+  RESIDENTIAL_APARTMENT
+  COMMERCIAL_SHOP
+  STORE_ROOM
+  OFFICE_SPACE
+  LAND_PLOT
+}
+

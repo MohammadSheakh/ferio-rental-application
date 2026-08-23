@@ -1,0 +1,53 @@
+enum SettingsType {
+  aboutUs
+  contactUs
+  privacyPolicy
+  termsAndConditions
+  introductionVideo
+  heroShowcase
+}
+
+model Settings {
+  id                String       @id @default(cuid())
+
+  // One settings row per static-content type, such as privacy policy or about us.
+  type              SettingsType @unique
+  details           String       @default("")
+  introductionVideo Json?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([type])
+}
+
+model CommerceSettings {
+  id                      String   @id @default("default")
+  storeName               String   @default("Ferio")
+  legalName               String?
+  supportPhone            String?
+  supportEmail            String?
+  currency                String   @default("BDT")
+  timezone                String   @default("Asia/Dhaka")
+  orderPrefix             String   @default("FER")
+  defaultReturnWindowDays Int?
+  codEnabled              Boolean  @default(true)
+  prepaidEnabled          Boolean  @default(false)
+  serviceBookingEnabled   Boolean  @default(true)
+  warrantyClaimsEnabled   Boolean  @default(true)
+  storefrontAnalyticsEnabled Boolean @default(true)
+  purchaseActivityEnabled Boolean  @default(false)
+  purchaseHistoryEnabled  Boolean  @default(false)
+  purchaseActivityShowDistrict Boolean @default(false)
+  purchaseActivityShowArea Boolean @default(false)
+  purchaseActivityDurationMs Int @default(4000)
+  purchaseActivityIntervalSeconds Int @default(12)
+  purchaseActivityMaxAgeDays Int @default(30)
+  purchaseActivityExcludedProductIds String[] @default([])
+  categoryTopNavEnabled   Boolean  @default(true)
+  categorySideNavEnabled  Boolean  @default(true)
+  termsUrl                String?
+  privacyUrl              String?
+  returnPolicyUrl         String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+}

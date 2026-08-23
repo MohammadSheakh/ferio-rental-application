@@ -1,0 +1,5 @@
+packages:
+  - 'ferio-nest-prisma'
+  - 'ferio-marketplace-web'
+  - 'ferio-saas-web'
+  - 'ferio-admin-web'

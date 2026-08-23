@@ -1,0 +1,23 @@
+model UserDevices {
+  id              String     @id @default(cuid())
+
+  // 🔗 Many devices can belong to one user.
+  userId          String
+  user            User       @relation(fields: [userId], references: [id])
+
+  fcmToken        String
+  deviceType      DeviceType @default(web)
+  deviceName      String?
+  deviceOsVersion String?
+  appVersion      String?
+  lastActive      DateTime   @default(now())
+  pushEnabled     Boolean    @default(true)
+  isDeleted       Boolean    @default(false)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([userId, isDeleted])
+  @@index([fcmToken, isDeleted])
+  @@index([deviceType, isDeleted])
+  @@index([lastActive, isDeleted])
+}

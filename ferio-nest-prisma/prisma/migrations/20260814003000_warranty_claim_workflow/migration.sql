@@ -1,0 +1,16 @@
+CREATE TYPE "WarrantyClaimStatus" AS ENUM ('SUBMITTED','PRODUCT_RECEIVED','UNDER_DIAGNOSIS','SENT_TO_BRAND','RECEIVED_FROM_BRAND','REPAIRED','RESOLVED','REJECTED');
+CREATE TABLE "WarrantyClaim" ("id" TEXT NOT NULL,"reference" TEXT NOT NULL,"status" "WarrantyClaimStatus" NOT NULL DEFAULT 'SUBMITTED',"issueDescription" TEXT NOT NULL,"rejectionReason" TEXT,"adminNote" TEXT,"orderReferenceSnapshot" TEXT NOT NULL,"productNameSnapshot" TEXT NOT NULL,"variantNameSnapshot" TEXT NOT NULL,"skuSnapshot" TEXT NOT NULL,"submittedById" TEXT NOT NULL,"handledById" TEXT,"orderItemId" TEXT NOT NULL,"resolvedAt" TIMESTAMP(3),"rejectedAt" TIMESTAMP(3),"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL,CONSTRAINT "WarrantyClaim_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "WarrantyEvidence" ("id" TEXT NOT NULL,"imageUrl" TEXT NOT NULL,"publicId" TEXT,"claimId" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "WarrantyEvidence_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "WarrantyClaimHistory" ("id" TEXT NOT NULL,"oldStatus" "WarrantyClaimStatus","newStatus" "WarrantyClaimStatus" NOT NULL,"actorId" TEXT NOT NULL,"source" "OrderHistorySource" NOT NULL,"note" TEXT,"claimId" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "WarrantyClaimHistory_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "WarrantyClaim_reference_key" ON "WarrantyClaim"("reference");
+CREATE INDEX "WarrantyClaim_status_createdAt_idx" ON "WarrantyClaim"("status","createdAt");
+CREATE INDEX "WarrantyClaim_submittedById_createdAt_idx" ON "WarrantyClaim"("submittedById","createdAt");
+CREATE INDEX "WarrantyClaim_orderItemId_createdAt_idx" ON "WarrantyClaim"("orderItemId","createdAt");
+CREATE INDEX "WarrantyEvidence_claimId_createdAt_idx" ON "WarrantyEvidence"("claimId","createdAt");
+CREATE INDEX "WarrantyClaimHistory_claimId_createdAt_idx" ON "WarrantyClaimHistory"("claimId","createdAt");
+CREATE INDEX "WarrantyClaimHistory_actorId_createdAt_idx" ON "WarrantyClaimHistory"("actorId","createdAt");
+ALTER TABLE "WarrantyClaim" ADD CONSTRAINT "WarrantyClaim_submittedById_fkey" FOREIGN KEY ("submittedById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "WarrantyClaim" ADD CONSTRAINT "WarrantyClaim_handledById_fkey" FOREIGN KEY ("handledById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "WarrantyClaim" ADD CONSTRAINT "WarrantyClaim_orderItemId_fkey" FOREIGN KEY ("orderItemId") REFERENCES "OrderItem"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "WarrantyEvidence" ADD CONSTRAINT "WarrantyEvidence_claimId_fkey" FOREIGN KEY ("claimId") REFERENCES "WarrantyClaim"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "WarrantyClaimHistory" ADD CONSTRAINT "WarrantyClaimHistory_claimId_fkey" FOREIGN KEY ("claimId") REFERENCES "WarrantyClaim"("id") ON DELETE CASCADE ON UPDATE CASCADE;

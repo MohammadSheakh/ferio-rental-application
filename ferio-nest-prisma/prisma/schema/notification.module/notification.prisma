@@ -1,0 +1,183 @@
+enum NotificationType {
+  task
+  group
+  system
+  reminder
+  mention
+  assignment
+  deadline
+  custom
+  commerce
+  order
+  payment
+  wallet
+  warranty
+  service
+}
+
+enum NotificationPriority {
+  low
+  normal
+  high
+  urgent
+}
+
+enum NotificationStatus {
+  pending
+  sent
+  delivered
+  read
+  failed
+}
+
+model Notification {
+  id           String               @id @default(cuid())
+  deduplicationKey String?          @unique
+
+  // 🔗 Many notifications can be sent by one user.
+  senderId     String?
+  sender       User?                @relation("NotificationSender", fields: [senderId], references: [id])
+
+  // 🔗 Many notifications can be received by one user.
+  receiverId   String?
+  receiver     User?                @relation("NotificationReceiver", fields: [receiverId], references: [id])
+
+  // Role broadcast target when receiverId is empty.
+  receiverRole String?
+  type         NotificationType
+  priority     NotificationPriority @default(normal)
+  status       NotificationStatus   @default(pending)
+  title        String
+  message      String?
+  // 🔗 Polymorphic target: notification can point to a task, group, message, etc.
+  entityType   String?
+  entityId     String?
+  linkFor      String?
+  linkId       String?
+  data         Json?
+  isRead       Boolean              @default(false)
+  readAt       DateTime?
+  deliveredAt  DateTime?
+  isDeleted    Boolean              @default(false)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@index([receiverId, isRead, isDeleted, createdAt])
+  @@index([receiverId, status, isDeleted])
+  @@index([senderId, isDeleted])
+  @@index([type, isDeleted])
+  @@index([entityType, entityId, isDeleted])
+  @@index([receiverRole, isDeleted])
+}
+
+enum CommerceMessagePurpose {
+  TRANSACTIONAL
+  PROMOTIONAL
+}
+
+enum CommerceMessageChannel {
+  SMS
+  WHATSAPP
+  EMAIL
+}
+
+enum CommerceMessageStatus {
+  QUEUED
+  PROCESSING
+  SENT
+  DELIVERED
+  FAILED
+  CANCELLED
+  BLOCKED
+}
+
+enum CommerceMessageAttemptStatus {
+  STARTED
+  ACCEPTED
+  DELIVERED
+  FAILED
+  UNKNOWN
+}
+
+model CommerceMessage {
+  id               String                 @id @default(cuid())
+  deduplicationKey String                 @unique
+  eventType        String
+  purpose          CommerceMessagePurpose @default(TRANSACTIONAL)
+  templateKey      String
+  templateVersion  Int
+  renderedSubject  String?
+  renderedBody     String
+  recipient        String
+  selectedChannel  CommerceMessageChannel?
+  channelPlan      CommerceMessageChannel[]
+  routingPolicyVersion Int?
+  fallbackReason   String?
+  terminalReason   String?
+  status           CommerceMessageStatus  @default(QUEUED)
+  referenceType    String
+  referenceId      String
+  payload           Json?
+  availableAt      DateTime               @default(now())
+  lockedAt         DateTime?
+  sentAt           DateTime?
+  deliveredAt      DateTime?
+  failedAt         DateTime?
+  completedAt      DateTime?
+  lastError        String?
+  attempts         CommerceMessageAttempt[]
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  @@index([status, availableAt])
+  @@index([referenceType, referenceId, createdAt])
+  @@index([recipient, createdAt])
+  @@index([eventType, createdAt])
+}
+
+model CommerceMessageTemplate {
+  key             String   @id
+  eventType       String   @unique
+  enabled         Boolean  @default(true)
+  subjectTemplate String?
+  bodyTemplate    String
+  version         Int      @default(1)
+  updatedById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([enabled, eventType])
+}
+
+model CommerceMessagingPolicy {
+  id                          String                   @id @default("transactional-default")
+  enabled                     Boolean                  @default(false)
+  version                     Int                      @default(1)
+  channelPriority             CommerceMessageChannel[]
+  fallbackOnDefinitiveFailure Boolean                  @default(true)
+  updatedById                 String?
+  createdAt                   DateTime                 @default(now())
+  updatedAt                   DateTime                 @updatedAt
+}
+
+model CommerceMessageAttempt {
+  id                String                       @id @default(cuid())
+  attemptNumber     Int
+  channel           CommerceMessageChannel
+  provider          String
+  status            CommerceMessageAttemptStatus @default(STARTED)
+  providerMessageId String?
+  requestPayload    Json?
+  responsePayload   Json?
+  errorCode         String?
+  errorMessage      String?
+  startedAt         DateTime                     @default(now())
+  completedAt       DateTime?
+  messageId         String
+  message           CommerceMessage              @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  createdAt         DateTime                     @default(now())
+
+  @@unique([messageId, attemptNumber])
+  @@index([status, createdAt])
+  @@index([provider, providerMessageId])
+}

@@ -1,0 +1,43 @@
+enum ConversationType {
+  direct
+  group
+}
+
+enum ParticipantRole {
+  admin
+  member
+}
+
+model Conversation {
+  id                   String   @id @default(cuid())
+
+  // 🔗 Many conversations can be created by one user.
+  creatorId            String
+  creator              User     @relation("ConversationCreator", fields: [creatorId], references: [id])
+
+  type                 ConversationType
+  groupName            String?
+  groupProfilePicture  String?
+
+  // Last message snapshot for faster conversation list loading.
+  lastMessageId        String?
+  lastMessageText      String?
+  lastMessageCreatedAt DateTime?
+  isDeleted            Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  // 🔗 One conversation can have many participants.
+  participants ConversationParticipents[]
+
+  // 🔗 One conversation can have many messages.
+  messages     Message[]
+
+  // 🔗 One conversation can have many read-status rows.
+  readStatuses MessageReadStatus[]
+
+
+  @@index([creatorId, isDeleted])
+  @@index([type, isDeleted])
+  @@index([lastMessageCreatedAt, isDeleted])
+}

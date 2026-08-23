@@ -1,0 +1,17 @@
+{
+  "name": "ferio-property-platform",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build:backend": "pnpm --filter ferio-nest-prisma run build",
+    "build:marketplace": "pnpm --filter ferio-marketplace-web run build",
+    "build:saas": "pnpm --filter ferio-saas-web run build",
+    "build:admin": "pnpm --filter ferio-admin-web run build",
+    "build:all": "pnpm run build:backend && pnpm run build:marketplace && pnpm run build:saas && pnpm run build:admin",
+    "dev:backend": "pnpm --filter ferio-nest-prisma run start:dev",
+    "dev:marketplace": "pnpm --filter ferio-marketplace-web run dev",
+    "dev:saas": "pnpm --filter ferio-saas-web run dev",
+    "dev:admin": "pnpm --filter ferio-admin-web run dev"
+  },
+  "packageManager": "pnpm@9.12.3"
+}

@@ -1,0 +1,25 @@
+model ConversationParticipents {
+  id                         String          @id @default(cuid())
+
+  // 🔗 Many participant rows can belong to one user.
+  userId                     String
+  user                       User            @relation(fields: [userId], references: [id])
+  userName                   String
+
+  // 🔗 Many participant rows can belong to one conversation.
+  conversationId             String
+  conversation               Conversation    @relation(fields: [conversationId], references: [id])
+  joinedAt                   DateTime        @default(now())
+  role                       ParticipantRole
+  lastMessageReadAt          DateTime?
+  lastMessageReadId          String?
+  unreadCount                Int             @default(0)
+  isThisConversationUnseen   Int             @default(0)
+  isDeleted                  Boolean         @default(false)
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
+
+  @@index([userId, conversationId, isDeleted])
+  @@index([conversationId, isDeleted])
+  @@index([userId, isDeleted])
+}

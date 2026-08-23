@@ -1,0 +1,6 @@
+// Prisma datasource configuration.
+// This file only describes which database Prisma connects to.
+// All models are kept in module folders and combined into prisma/schema.prisma by the build script.
+datasource db {
+  provider = "postgresql" // Change to "mongodb" only if the schema is converted to Mongo ObjectId style.
+}

@@ -1,0 +1,26 @@
+enum AuditSource {
+  ADMIN_API
+  SYSTEM
+  JOB
+  PROVIDER
+}
+
+model AuditLog {
+  id            String      @id @default(cuid())
+  action        String
+  entityType    String
+  entityId      String
+  actorId       String?
+  actorRole     String?
+  source        AuditSource @default(ADMIN_API)
+  previousValue Json?
+  newValue      Json?
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@index([source, createdAt])
+  @@index([createdAt])
+}

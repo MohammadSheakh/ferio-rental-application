@@ -1,0 +1,16 @@
+model UserRoleData {
+  id                     String                  @id @default(cuid())
+
+  // 🔗 Many role-data records can belong to one user.
+  userId                 String
+  user                   User                    @relation(fields: [userId], references: [id])
+
+  adminStatus            RoleDataAdminStatus?
+  providerApprovalStatus ProviderApprovalStatus?
+  approvedAt             DateTime?
+  isDeleted              Boolean                 @default(false)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  @@index([userId])
+}

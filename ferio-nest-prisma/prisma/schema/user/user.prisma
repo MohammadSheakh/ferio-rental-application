@@ -1,0 +1,78 @@
+model User {
+  id                          String            @id @default(cuid())
+  name                        String
+  email                       String            @unique
+  password                    String?
+  role                        UserRole
+  profileImageUrl             String            @default("/uploads/users/user.png")
+  phoneNumber                 String?
+  isEmailVerified             Boolean           @default(false)
+  authProvider                UserAuthProvider  @default(local)
+  preferredTime               String            @default("07:00")
+  isResetPassword             Boolean           @default(false)
+  failedLoginAttempts         Int               @default(0)
+  lockUntil                   DateTime?
+  staffAccessStatus           StaffAccessStatus?
+  staffPermissions            String[]          @default([])
+  staffSessionVersion         Int               @default(0)
+  twoFactorEnabled            Boolean           @default(false)
+  twoFactorSecretEncrypted    String?
+  twoFactorPendingEncrypted   String?
+  twoFactorRecoveryCodeHashes String[]          @default([])
+
+  // 🔗 One user can have one primary profile link.
+  profileId String?      @unique
+  profile   UserProfile? @relation("UserProfileLink", fields: [profileId], references: [id])
+
+  // 🔗 One parent/creator user can create many child accounts.
+  accountCreatorId String?
+  accountCreator   User?   @relation("UserAccountCreator", fields: [accountCreatorId], references: [id])
+  childAccounts    User[]  @relation("UserAccountCreator")
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // 🔗 One user can own one profile record.
+  ownedProfile UserProfile? @relation("UserProfileOwner")
+
+  // 🔗 One user can have many registered devices.
+  devices UserDevices[]
+
+  // 🔗 One user can link many OAuth provider accounts.
+  oauthAccounts OAuthAccount[]
+
+  // 🔗 One user can have many role-specific data records.
+  roleData UserRoleData[]
+
+  // 🔗 One user can create many conversations.
+  createdConversations Conversation[] @relation("ConversationCreator")
+
+  // 🔗 One user can participate in many conversations.
+  conversationParticipents ConversationParticipents[]
+
+  // 🔗 One user can send many chat messages.
+  sentMessages Message[] @relation("MessageSender")
+
+  // 🔗 One user can have many message read status rows.
+  messageReadStatuses MessageReadStatus[]
+
+  // 🔗 One user can send many notifications.
+  sentNotifications Notification[] @relation("NotificationSender")
+
+  // 🔗 One user can receive many notifications.
+  receivedNotifications Notification[] @relation("NotificationReceiver")
+
+  // 🔗 Ferio Rental relations
+  rentalMemberships         RentalOrganizationMember[]
+  rentalGrantedDelegations  RentalDelegation[]         @relation("GrantorUser")
+  rentalReceivedDelegations RentalDelegation[]         @relation("GranteeUser")
+
+  @@index([email, isDeleted])
+  @@index([role, isDeleted])
+  @@index([role, staffAccessStatus, isDeleted])
+  @@index([role, isEmailVerified, isDeleted])
+  @@index([accountCreatorId, isDeleted])
+  @@index([createdAt, isDeleted])
+}

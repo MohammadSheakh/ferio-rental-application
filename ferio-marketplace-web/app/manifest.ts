@@ -1,0 +1,14 @@
+import type { MetadataRoute } from 'next';
+
+export default function manifest(): MetadataRoute.Manifest {
+  return {
+    name: 'Ferio — Bangladesh Property Marketplace',
+    short_name: 'Ferio',
+    description:
+      'Rent and buy apartments, shops, land and store rooms across Dhaka with OpenStreetMap search.',
+    start_url: '/',
+    display: 'standalone',
+    background_color: '#ffffff',
+    theme_color: '#111114',
+  };
+}

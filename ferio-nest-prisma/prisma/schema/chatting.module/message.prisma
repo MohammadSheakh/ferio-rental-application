@@ -1,0 +1,25 @@
+model Message {
+  id             String       @id @default(cuid())
+  text           String
+
+  // 🔗 Many messages can be sent by one user.
+  senderId       String
+  sender         User         @relation("MessageSender", fields: [senderId], references: [id])
+
+  // 🔗 Many messages can belong to one conversation.
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  isDeleted      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  // 🔗 One-to-many: one message can include many attachments.
+  attachments  Attachment[]
+
+  // 🔗 One message can have many read-status rows, one per reader.
+  readStatuses MessageReadStatus[]
+
+  @@index([conversationId, createdAt, isDeleted])
+  @@index([senderId, isDeleted])
+  @@index([createdAt, isDeleted])
+}

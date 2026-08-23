@@ -1,0 +1,32 @@
+enum AttachmentType {
+  document
+  image
+  video
+  unknown
+}
+
+model Attachment {
+  id             String         @id @default(cuid())
+  attachment     String
+  attachmentType AttachmentType
+  publicId       String?
+  originalName   String?
+  size           Int?
+  mimeType       String?
+
+  // 🔗 Polymorphic target: one attachment can point to a task, user, message, etc.
+  attachedToType String?
+  attachedToId   String?
+
+  // 🔗 Many to One: one message can have many attachments
+  message   Message? @relation(fields: [messageId], references: [id])
+  messageId String?
+
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([attachedToType, attachedToId, isDeleted])
+  @@index([attachmentType, isDeleted])
+  @@index([createdAt, isDeleted])
+}

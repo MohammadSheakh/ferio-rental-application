@@ -1,0 +1,32 @@
+model UserProfile {
+  id                        String             @id @default(cuid())
+
+  // 🔗 One user profile belongs to one user.
+  userId                    String             @unique
+  user                      User               @relation("UserProfileOwner", fields: [userId], references: [id])
+
+  // 🔗 Optional reverse side for User.profileId primary profile relation.
+  linkedUser                User?              @relation("UserProfileLink")
+
+  location                  String?
+  dob                       DateTime?
+  gender                    String?
+  acceptTOC                 Boolean            @default(false)
+  supportMode               String             @default("calm")
+  notificationStyle         String             @default("gentle")
+  providerApprovalStatus    UserApprovalStatus @default(pending)
+  adminStatus               UserAdminStatus    @default(active)
+
+  // Attachment IDs for provider verification images.
+  frontSideCertificateImage String?
+  backSideCertificateImage  String?
+  faceImageFromFrontCam     String?
+
+  isDeleted                 Boolean            @default(false)
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
+
+  @@index([userId, isDeleted])
+  @@index([providerApprovalStatus, isDeleted])
+  @@index([adminStatus, isDeleted])
+}

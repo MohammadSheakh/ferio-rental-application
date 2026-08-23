@@ -1,0 +1,375 @@
+// ──────────────────────────────────────────────────────────────
+// FERIO CONTROL PLANE — Prisma Schema
+// Manages SaaS organizations, subscriptions, tenant DB registry,
+// platform users, feature flags, and provisioning state.
+// This is a SEPARATE database from marketplace and tenant DBs.
+// ──────────────────────────────────────────────────────────────
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../node_modules/@prisma/control-client"
+}
+
+// ──────────────────────────────────────────────────────────────
+// ENUMS
+// ──────────────────────────────────────────────────────────────
+
+enum OrganizationStatus {
+  PROVISIONING
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELLED
+  ARCHIVED
+  PROVISIONING_FAILED
+}
+
+enum TenantDatabaseStatus {
+  PENDING
+  CREATING
+  MIGRATING
+  SEEDING
+  READY
+  FAILED
+  DISABLED
+}
+
+enum PlanTier {
+  FREE_LISTING
+  STARTER
+  PRO
+  BUSINESS
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELLED
+  EXPIRED
+}
+
+enum ProvisioningJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  ROLLED_BACK
+}
+
+enum PlatformUserRole {
+  SUPER_ADMIN
+  ADMIN
+  SUPPORT
+  MODERATOR
+}
+
+/// How a CentralUser authenticates.
+enum CredentialProvider {
+  PASSWORD
+  GOOGLE
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS
+// ──────────────────────────────────────────────────────────────
+
+/// Central Identity (§10): one account across marketplace + SaaS.
+/// Lives in the control-plane DB so users can belong to several
+/// organizations without password duplication in tenant DBs.
+model CentralUser {
+  id           String             @id @default(cuid())
+  email        String             @unique
+  /// Null for Google-only accounts.
+  passwordHash String?
+  displayName  String
+  phone        String?
+  avatarUrl    String?
+
+  provider         CredentialProvider @default(PASSWORD)
+  /// Google subject id (`sub` claim) when linked.
+  googleSub        String?            @unique
+  emailVerified    Boolean            @default(false)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+
+  @@index([email])
+}
+
+/// Opaque refresh tokens (rotated on every use). Only the sha256 hash
+/// is stored; a stolen database cannot mint new sessions.
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String    /// CentralUser.id
+  tokenHash String    @unique /// sha256 hex of the raw token
+  expiresAt DateTime
+  revokedAt DateTime?
+  rotatedTo String?   /// id of the successor token when rotated
+
+  createdAt DateTime @default(now())
+
+  user CentralUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// SaaS Organization (customer workspace)
+model SaasOrganization {
+  id          String             @id @default(cuid())
+  name        String
+  slug        String             @unique /// e.g. "rahman" → rahman.ferio.com
+  status      OrganizationStatus @default(PROVISIONING)
+  ownerUserId String             /// Central identity user who created the org
+
+  // Metadata
+  logoUrl     String?
+  contactEmail String?
+  contactPhone String?
+  country      String  @default("BD")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  domains       OrganizationDomain[]
+  database      TenantDatabase?
+  subscription  Subscription?
+  provisioningJobs ProvisioningJob[]
+  auditEvents   PlatformAuditEvent[]
+
+  @@index([slug])
+  @@index([status])
+  @@index([ownerUserId])
+}
+
+/// Custom domains / subdomains for a SaaS org
+model OrganizationDomain {
+  id             String  @id @default(cuid())
+  organizationId String
+  domain         String  @unique /// e.g. "rahman.ferio.com" or "rent.rahmanproperties.com"
+  isPrimary      Boolean @default(false)
+  isVerified     Boolean @default(false)
+  verificationToken String?
+  sslStatus      String  @default("PENDING") /// PENDING | ACTIVE | FAILED
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization SaasOrganization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([domain])
+  @@index([organizationId])
+}
+
+/// Registry of tenant databases
+model TenantDatabase {
+  id             String              @id @default(cuid())
+  organizationId String              @unique
+  status         TenantDatabaseStatus @default(PENDING)
+
+  /// Connection metadata (encrypted at rest in production)
+  databaseName   String   @unique /// e.g. "tenant_rahman"
+  host           String   @default("localhost")
+  port           Int      @default(5432)
+  username       String   @default("postgres")
+  /// In production, store encrypted or use secret manager reference
+  passwordRef    String?  /// Reference to secret manager key
+  sslMode        String   @default("prefer")
+
+  /// Migration tracking
+  schemaVersion   String?  /// e.g. "20260822_001"
+  lastMigratedAt  DateTime?
+  lastHealthCheck DateTime?
+  isHealthy       Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization SaasOrganization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([databaseName])
+}
+
+/// Subscription plan definitions
+model Plan {
+  id          String   @id @default(cuid())
+  name        String   /// e.g. "Starter", "Pro", "Business"
+  tier        PlanTier @unique
+  description String?
+
+  // Limits
+  maxUnits       Int     @default(5)
+  maxProperties  Int     @default(2)
+  maxBuildings   Int     @default(2)
+  maxStaff       Int     @default(2)
+  maxStorageMb   Int     @default(500)
+
+  // Feature entitlements
+  hasUtilities       Boolean @default(false)
+  hasMaintenance     Boolean @default(false)
+  hasAutomation      Boolean @default(false)
+  hasApiAccess       Boolean @default(false)
+  hasCustomDomain    Boolean @default(false)
+  hasWhatsApp        Boolean @default(false)
+  hasAdvancedReports Boolean @default(false)
+
+  // Pricing
+  monthlyPriceBdt  Float   @default(0)
+  yearlyPriceBdt   Float   @default(0)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions Subscription[]
+  entitlements  PlanEntitlement[]
+
+  @@index([tier])
+}
+
+/// Normalized per-plan entitlements. Flat boolean/int columns on Plan
+/// remain the legacy baseline; rows here override or extend them with
+/// arbitrary keys (e.g. "api.rateLimitPerDay" = "1000").
+model PlanEntitlement {
+  id    String @id @default(cuid())
+  planId String
+  key   String /// "maxUnits" | "hasUtilities" | "storage.extraGb" | ...
+  value String /// stringified scalar
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, key])
+}
+
+/// Organization subscription
+model Subscription {
+  id             String             @id @default(cuid())
+  organizationId String             @unique
+  planId         String
+  status         SubscriptionStatus @default(ACTIVE)
+
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelledAt        DateTime?
+  trialEndsAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization SaasOrganization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         Plan             @relation(fields: [planId], references: [id])
+  events       SubscriptionEvent[]
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+/// Subscription lifecycle events
+model SubscriptionEvent {
+  id             String @id @default(cuid())
+  subscriptionId String
+  eventType      String /// CREATED | RENEWED | UPGRADED | DOWNGRADED | CANCELLED | SUSPENDED | REACTIVATED
+  fromPlanId     String?
+  toPlanId       String?
+  metadata       Json?
+
+  createdAt DateTime @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@index([eventType])
+}
+
+/// Provisioning pipeline jobs
+model ProvisioningJob {
+  id             String                @id @default(cuid())
+  organizationId String
+  status         ProvisioningJobStatus @default(PENDING)
+  step           String?               /// VALIDATE_SLUG | CREATE_DB | MIGRATE | SEED | CREATE_OWNER | ACTIVATE
+  attempt        Int                   @default(1)
+  maxAttempts    Int                   @default(3)
+  errorMessage   String?
+  metadata       Json?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  organization SaasOrganization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+/// Platform-level users (Ferio team only)
+model PlatformUser {
+  id       String           @id @default(cuid())
+  email    String           @unique
+  name     String
+  role     PlatformUserRole @default(SUPPORT)
+  password String
+
+  totpEnabled Boolean @default(false)
+  totpSecret  String?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+}
+
+/// Global feature flags
+model FeatureFlag {
+  id          String  @id @default(cuid())
+  key         String  @unique /// e.g. "marketplace_sale_listings"
+  description String?
+  isEnabled   Boolean @default(false)
+
+  /// Optional: scope to specific organizations
+  scopeOrganizationIds String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+}
+
+/// Platform audit trail
+model PlatformAuditEvent {
+  id             String  @id @default(cuid())
+  actorId        String? /// PlatformUser ID or system
+  actorType      String  @default("SYSTEM") /// PLATFORM_USER | SYSTEM | API
+  action         String  /// e.g. "organization.provisioned", "subscription.suspended"
+  resourceType   String  /// e.g. "SaasOrganization", "Subscription"
+  resourceId     String?
+  organizationId String?
+  metadata       Json?
+  ipAddress      String?
+
+  createdAt DateTime @default(now())
+
+  organization SaasOrganization? @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([action])
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+}

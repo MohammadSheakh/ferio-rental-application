@@ -1,0 +1,59 @@
+// User module enums shared by User, UserProfile, UserDevices, OAuthAccount, and UserRoleData.
+
+enum UserRole {
+  admin
+  staff
+  user
+  delivery_man
+}
+
+enum StaffAccessStatus {
+  active
+  inactive
+}
+
+enum StaffAccessTokenPurpose {
+  INVITE
+  RESET
+}
+
+enum UserAuthProvider {
+  local
+  google
+  apple
+}
+
+enum UserApprovalStatus {
+  pending
+  approved
+  rejected
+}
+
+enum UserAdminStatus {
+  active
+  inactive
+}
+
+enum DeviceType {
+  web
+  ios
+  android
+  desktop
+}
+
+enum OAuthProvider {
+  google
+  apple
+}
+
+enum RoleDataAdminStatus {
+  active
+  inactive
+}
+
+enum ProviderApprovalStatus {
+  accept
+  reject
+  pending
+  requested
+}

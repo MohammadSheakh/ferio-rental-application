@@ -1,0 +1,103 @@
+
+flowchart TB
+    subgraph Presentation["📱 Presentation Layer"]
+        direction TB
+        A1[AttachmentController]
+        A2[AuthGuard]
+        A3[TransformResponseInterceptor]
+        A4[UseFileUploadPipeline Decorator]
+        A5[FileUploadProcessingInterceptor]
+        
+        A1 --> A2
+        A1 --> A3
+        A1 --> A4
+        A4 --> A5
+    end
+
+    subgraph Business["💼 Business Logic Layer"]
+        direction TB
+        B1[AttachmentService]
+        B2[GenericService]
+        B3[File Type Detection]
+        B4[Cache Management]
+        
+        B1 --> B2
+        B1 --> B3
+        B1 --> B4
+    end
+
+    subgraph Strategy["🔄 Strategy Pattern Layer"]
+        direction TB
+        C1[FileUploadStrategyFactory]
+        C2[IFileUploadStrategy Interface]
+        C3[CloudinaryStrategy]
+        C4[S3Strategy]
+        C5[DigitalOceanStrategy]
+        
+        C1 --> C2
+        C2 <--> C3
+        C2 <--> C4
+        C2 <--> C5
+    end
+
+    subgraph Data["💾 Data Access Layer"]
+        direction TB
+        D1[Mongoose Model]
+        D2[AttachmentSchema]
+        D3[Redis Client]
+        
+        D1 --> D2
+        D1 --> D3
+    end
+
+    subgraph DTOs["📋 Data Transfer Objects"]
+        direction TB
+        E1[CreateAttachmentDto]
+        E2[UpdateAttachmentDto]
+        E3[GetAttachmentsByEntityDto]
+    end
+
+    subgraph External["🌐 External Services"]
+        direction TB
+        F1[Cloudinary API]
+        F2[AWS S3 SDK]
+        F3[DigitalOcean Spaces API]
+        F4[MongoDB Atlas]
+        F5[Redis Server]
+    end
+
+    %% Connections
+    A5 -->|Uploaded Files| B1
+    B1 -->|Strategy Injection| C1
+    C1 -->|Get Default Strategy| C3
+    C1 -->|Get Strategy| C4
+    C1 -->|Get Strategy| C5
+    
+    C3 -->|uploadFile/deleteFile| F1
+    C4 -->|uploadFile/deleteFile| F2
+    C5 -->|uploadFile/deleteFile| F3
+    
+    B1 -->|CRUD Operations| D1
+    D1 -->|Queries| F4
+    B1 -->|Cache Operations| D3
+    D3 -->|Get/Set/Del| F5
+    
+    E1 --> A1
+    E2 --> A1
+    E3 --> A1
+    
+    %% Styling
+    classDef presentation fill:#000,stroke:#1976d2,stroke-width:2px
+    classDef business fill:#000,stroke:#7b1fa2,stroke-width:2px
+    classDef strategy fill:#000,stroke:#388e3c,stroke-width:2px
+    classDef data fill:#000,stroke:#f57c00,stroke-width:2px
+    classDef dto fill:#000,stroke:#c2185b,stroke-width:2px
+    classDef external fill:#000,stroke:#616161,stroke-width:2px,stroke-dasharray: 5 5
+    
+    class A1,A2,A3,A4,A5 presentation
+    class B1,B2,B3,B4 business
+    class C1,C2,C3,C4,C5 strategy
+    class D1,D2,D3 data
+    class E1,E2,E3 dto
+    class F1,F2,F3,F4,F5 external
+

@@ -1,0 +1,3 @@
+module.exports=[74748,a=>{"use strict";var b=a.i(13672);a.s(["default",0,function({children:a}){return(0,b.jsx)("html",{lang:"en",children:(0,b.jsx)("body",{children:a})})},"metadata",0,{title:"Ferio Control Plane — Platform Admin Console (admin.ferio.com)",description:"SaaS Multi-Tenant Provisioning, Plan Entitlements & Marketplace Moderation Control Panel"}])},12115,function(a){a.n(a.i(74748))}];
+
+//# sourceMappingURL=ferio-admin-web_app_layout_tsx_0l8znao._.js.map

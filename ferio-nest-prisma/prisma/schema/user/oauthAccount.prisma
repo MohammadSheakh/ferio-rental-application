@@ -1,0 +1,30 @@
+model OAuthAccount {
+  id           String        @id @default(cuid())
+
+  // 🔗 Many OAuth accounts can belong to one user.
+  userId       String
+  user         User          @relation(fields: [userId], references: [id])
+
+  // Provider identity, such as Google sub or Apple sub.
+  authProvider OAuthProvider
+  providerId   String
+  email        String
+
+  // Sensitive provider tokens. Keep these protected at application level.
+  accessToken  String?
+  refreshToken String?
+  idToken      String?
+
+  isVerified   Boolean       @default(true)
+  lastUsedAt   DateTime?
+  isDeleted    Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // One provider account should only be linked once globally.
+  @@unique([authProvider, providerId])
+  @@index([userId, isDeleted])
+  @@index([authProvider, providerId, isDeleted])
+  @@index([email, isDeleted])
+  @@index([providerId, isDeleted])
+}

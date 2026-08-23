@@ -1,0 +1,6 @@
+// Prisma Client generator.
+// Run the schema builder first, then run prisma generate against prisma/schema.prisma.
+generator client {
+  provider = "prisma-client-js"
+  // output   = "../../generated/prisma"
+}

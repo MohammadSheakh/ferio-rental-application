@@ -1,0 +1,17 @@
+model StaffAccessToken {
+  id             String                  @id @default(cuid())
+  email          String
+  name           String?
+  permissions    String[]                @default([])
+  purpose        StaffAccessTokenPurpose
+  tokenHash      String                  @unique
+  targetUserId   String?
+  issuedByUserId String
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime                @default(now())
+
+  @@index([email, purpose, consumedAt, expiresAt])
+  @@index([targetUserId, purpose, consumedAt])
+  @@index([issuedByUserId, createdAt])
+}

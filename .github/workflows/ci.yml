@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend — build, schemas, unit tests
+    runs-on: ubuntu-latest
+
+    env:
+      CONTROL_PLANE_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ferio_control
+      MARKETPLACE_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ferio_marketplace
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ferio_legacy
+      TENANT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ferio_tenant_template
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ferio-nest-prisma/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: ferio-nest-prisma
+        run: pnpm install --frozen-lockfile=false
+
+      # ── Prisma schema validation (§19 CI checklist) ──
+      - name: Validate control-plane schema
+        run: npx prisma validate --config prisma/control-plane/prisma.config.ts
+        working-directory: ferio-nest-prisma
+
+      - name: Validate marketplace schema
+        run: npx prisma validate --config prisma/marketplace/prisma.config.ts
+        working-directory: ferio-nest-prisma
+
+      - name: Validate tenant schema
+        run: npx prisma validate --config prisma/tenant/prisma.config.ts
+        working-directory: ferio-nest-prisma
+
+      - name: Generate Prisma clients
+        working-directory: ferio-nest-prisma
+        run: pnpm run prisma:platform:generate && pnpm run prisma:generate
+
+      # ── Tenant migration replay (empty-DB check, §14) ──
+      - name: Start PostgreSQL (PostGIS)
+        run: |
+          sudo docker run -d --name pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgis/postgis:16-3.4
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -U postgres && break || sleep 2
+          done
+
+      - name: Replay tenant migrations on empty DB
+        run: npx prisma migrate deploy --config prisma/tenant/prisma.config.ts
+        working-directory: ferio-nest-prisma
+        env:
+          TENANT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/replay_tenant
+
+      - name: Apply marketplace SQL migrations (PostGIS foundation)
+        run: pnpm run prisma:marketplace:sql
+        working-directory: ferio-nest-prisma
+
+      # ── Build & tests ──
+      - name: Build backend
+        working-directory: ferio-nest-prisma
+        run: pnpm run build
+
+      - name: Unit tests
+        working-directory: ferio-nest-prisma
+        run: npx jest --coverage=false --testPathIgnorePatterns "test/"
+
+      # TODO(§19): integration suite with service containers,
+      # tenant-isolation e2e, and frontend typecheck/build jobs.
+
+  frontends:
+    name: Frontends — build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [ferio-marketplace-web, ferio-saas-web, ferio-admin-web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: pnpm install --no-frozen-lockfile
+      - name: Build
+        run: pnpm --filter ${{ matrix.app }} run build

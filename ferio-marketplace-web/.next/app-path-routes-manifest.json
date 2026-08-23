@@ -1,0 +1,10 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/icon.svg/route": "/icon.svg",
+  "/listings/[id]/page": "/listings/[id]",
+  "/login/page": "/login",
+  "/manifest.webmanifest/route": "/manifest.webmanifest",
+  "/page": "/",
+  "/renter/page": "/renter"
+}
