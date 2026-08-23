@@ -1171,14 +1171,16 @@ Subscription
 
 ## Week 30 — Broker CRM
 
-- [ ] broker leads
-- [ ] inquiry attribution
+> **v2.1 implementation:** CrmLead pipeline (source → NEW→CONTACTED→VIEWING_SCHEDULED→NEGOTIATING→CONVERTED/LOST with guarded transitions + required lost-reason), one-tx conversion to renter+ACTIVE lease, broker name + commission pct/amount captured on the lease, per-assignee performance report. Marketplace inquiry attribution is LIVE: inquiries on org-published units auto-create deduped leads in that org's CRM.
+
+- [x] broker leads
+- [x] inquiry attribution *(marketplace inquiries on org-published units auto-create deduped MARKETPLACE_INQUIRY leads — best-effort async)*
 - [ ] viewing
 - [ ] listing attribution
-- [ ] lease conversion
-- [ ] commission
-- [ ] commission payment
-- [ ] performance reports
+- [x] lease conversion
+- [x] commission *(pct/amount captured on lease)*
+- [ ] commission payment *(payout ledger pending)*
+- [x] performance reports
 
 ## Week 31 — Sale CRM
 

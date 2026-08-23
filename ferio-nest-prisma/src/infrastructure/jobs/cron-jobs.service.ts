@@ -101,7 +101,7 @@ export class CronJobsService {
   async runListingExpiryScan() {
     const result = await this.marketplacePrisma.propertyListing.updateMany({
       where: {
-        status: ListingStatus.ACTIVE,
+        status: { in: [ListingStatus.ACTIVE, ListingStatus.PENDING_REVIEW] },
         expiresAt: { lt: new Date() },
       },
       data: { status: ListingStatus.EXPIRED },

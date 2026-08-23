@@ -40,8 +40,8 @@ export class MarketplaceModerationService {
     });
     if (!listing) throw new NotFoundException('Listing not found');
     if (
-      ![ListingStatus.PENDING_REVIEW, ListingStatus.REJECTED].includes(
-        listing.status as ListingStatus,
+      ![ListingStatus.PENDING_REVIEW, ListingStatus.REJECTED].map(String).includes(
+        String(listing.status),
       )
     ) {
       throw new BadRequestException(`Listing is ${listing.status}, nothing to approve`);
@@ -70,7 +70,7 @@ export class MarketplaceModerationService {
       select: { status: true },
     });
     if (!listing) throw new NotFoundException('Listing not found');
-    if (listing.status !== ListingStatus.PENDING_REVIEW) {
+    if (String(listing.status) !== 'PENDING_REVIEW') {
       throw new BadRequestException(`Listing is ${listing.status}; only PENDING_REVIEW can be rejected`);
     }
 

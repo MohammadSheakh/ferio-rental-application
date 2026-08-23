@@ -148,6 +148,11 @@ export class CreateListingDto {
   @IsNumber()
   @IsOptional()
   longitude?: number;
+
+  @ApiPropertyOptional({ description: 'Auto-expiry date — ACTIVE listings past this become EXPIRED (cron)' })
+  @IsDateString()
+  @IsOptional()
+  expiresAt?: string;
 }
 
 export class UpdateListingDto {

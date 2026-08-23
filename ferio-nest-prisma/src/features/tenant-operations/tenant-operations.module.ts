@@ -35,6 +35,7 @@ import { MarketplaceModule } from '../marketplace/marketplace.module';
     TenantOperationsController,
     ProjectionOpsController,
     TenantIamController,
+    TenantCrmController,
   ],
   providers: [
     TenantPropertyService,

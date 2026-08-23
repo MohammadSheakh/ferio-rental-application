@@ -1,11 +1,13 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { MarketplacePrismaService } from '../../infrastructure/marketplace/marketplace-prisma.service';
+import { TenantDatabaseManager } from '../../infrastructure/tenant/tenant-database.manager';
 
 export interface CreateInquiryInput {
   listingId: string;
   senderAccountId: string;
   phone?: string;
   message: string;
+  senderNameFallback?: string;
 }
 
 export interface CreateViewingRequestInput {
@@ -25,7 +27,12 @@ export interface CreateReportInput {
 
 @Injectable()
 export class MarketplaceInteractionService {
-  constructor(private readonly marketplacePrisma: MarketplacePrismaService) {}
+  private readonly logger = new Logger(MarketplaceInteractionService.name);
+
+  constructor(
+    private readonly marketplacePrisma: MarketplacePrismaService,
+    private readonly tenantDbManager: TenantDatabaseManager,
+  ) {}
 
   // ────────────────────────────────────────────────────────────
   // Favorites
@@ -77,7 +84,7 @@ export class MarketplaceInteractionService {
       throw new NotFoundException('Listing not found');
     }
 
-    return this.marketplacePrisma.inquiry.create({
+    const inquiry = await this.marketplacePrisma.inquiry.create({
       data: {
         listingId: input.listingId,
         senderId: input.senderAccountId,
@@ -86,6 +93,68 @@ export class MarketplaceInteractionService {
         message: input.message,
       },
     });
+
+    // § Week 30 attribution — best-effort, never blocks the inquiry.
+    void this.attributeToOrganizationCrm(listing, input).catch((err: any) => {
+      this.logger.warn(
+        `CRM attribution skipped for inquiry ${inquiry.id}: ${err?.message ?? err}`,
+      );
+    });
+
+    return inquiry;
+  }
+
+  /**
+   * Marketplace inquiry → tenant CrmLead. Only applies to listings
+   * projected from a managed unit (sourceOrganizationId + sourceUnitId).
+   */
+  private async attributeToOrganizationCrm(
+    listing: { sourceOrganizationId: string | null; sourceUnitId: string | null },
+    input: CreateInquiryInput,
+  ): Promise<void> {
+    if (!listing.sourceOrganizationId || !listing.sourceUnitId) return;
+
+    const sender = await this.marketplacePrisma.marketplaceAccount.findUnique({
+      where: { id: input.senderAccountId },
+      select: { displayName: true, phone: true, email: true },
+    });
+
+    const db = await this.tenantDbManager.getTenantDatabase(
+      listing.sourceOrganizationId,
+    );
+    const localUnit = await db.unit.findUnique({
+      where: { id: listing.sourceUnitId },
+      select: { id: true },
+    });
+    if (!localUnit) return;
+
+    // Dedupe: same contact on the same unit stays one lead.
+    const dupKey = input.phone ?? sender?.phone ?? null;
+    const existing = await db.crmLead.findFirst({
+      where: {
+        source: 'MARKETPLACE_INQUIRY',
+        interestedUnitId: localUnit.id,
+        ...(dupKey ? { phone: dupKey } : {}),
+      },
+    });
+    if (existing) return;
+
+    await db.crmLead.create({
+      data: {
+        name:
+          sender?.displayName ??
+          input.senderNameFallback ??
+          'Marketplace lead',
+        phone: input.phone ?? sender?.phone ?? undefined,
+        email: sender?.email ?? undefined,
+        source: 'MARKETPLACE_INQUIRY',
+        interestedUnitId: localUnit.id,
+        notes: input.message,
+      },
+    });
+    this.logger.log(
+      `📥 Inquiry attributed to org ${listing.sourceOrganizationId} CRM (unit ${listing.sourceUnitId})`,
+    );
   }
 
   async getInquiriesForAccount(accountId: string) {

@@ -420,6 +420,7 @@ model Renter {
 
   leases      Lease[]
   guarantors  Guarantor[]
+  crmLeads    CrmLead[]
 
   @@index([phone])
   @@index([email])
@@ -741,8 +742,11 @@ model CrmLead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  convertedRenter Renter? @relation(fields: [convertedRenterId], references: [id])
+
   @@index([status])
   @@index([assignedTo])
+  @@index([convertedRenterId])
 }
 
 // ──────────────────────────────────────────────────────────────

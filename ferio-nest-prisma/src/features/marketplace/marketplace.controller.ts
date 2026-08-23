@@ -22,6 +22,7 @@ import {
   AddListingMediaDto,
   AddListingDocumentDto,
   SearchListingsDto,
+  MapSearchDto,
 } from './dto/marketplace-listing.dto';
 import { ListingStatus } from '@prisma/marketplace-client';
 import { OptionalJwtAuthGuard } from '../../infrastructure/identity/jwt-auth.guard';

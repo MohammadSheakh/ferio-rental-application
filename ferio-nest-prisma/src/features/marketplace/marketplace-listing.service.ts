@@ -87,6 +87,7 @@ export class MarketplaceListingService {
           ? ListingStatus.PENDING_REVIEW
           : ListingStatus.ACTIVE,
         publishedAt: this.moderationEnabled ? null : new Date(),
+        ...(dto.expiresAt ? { expiresAt: new Date(dto.expiresAt) } : {}),
       },
       include: {
         seller: {
@@ -111,7 +112,7 @@ export class MarketplaceListingService {
     if (listing.sellerId !== sellerAccountId) {
       throw new ForbiddenException('You do not own this listing');
     }
-    if ([ListingStatus.RENTED, ListingStatus.SOLD, ListingStatus.ARCHIVED].includes(listing.status as ListingStatus)) {
+    if ([ListingStatus.RENTED, ListingStatus.SOLD, ListingStatus.ARCHIVED].map(String).includes(String(listing.status))) {
       throw new BadRequestException(`Cannot edit a listing in ${listing.status} state`);
     }
 
@@ -207,9 +208,9 @@ export class MarketplaceListingService {
     if (
       !viewer?.isAdmin &&
       !isSeller &&
-      ![ListingStatus.ACTIVE, ListingStatus.RENTED, ListingStatus.SOLD].includes(
-        listing.status as ListingStatus,
-      )
+      ![ListingStatus.ACTIVE, ListingStatus.RENTED, ListingStatus.SOLD]
+        .map(String)
+        .includes(String(listing.status))
     ) {
       throw new NotFoundException('Property listing not found');
     }

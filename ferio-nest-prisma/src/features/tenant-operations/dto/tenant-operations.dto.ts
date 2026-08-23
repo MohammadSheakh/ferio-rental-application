@@ -111,7 +111,7 @@ export class CreateTenantRenterDto {
   @IsOptional()
   centralUserId?: string;
 
-  @ApiPropertyOptional({ description: 'National ID (NID) number' })
+  @ApiPropertyOptional({ description: 'National ID (NID) number', example: '19902692512000001' })
   @IsString()
   @IsOptional()
   nidNumber?: string;
@@ -131,20 +131,10 @@ export class CreateTenantRenterDto {
   @IsOptional()
   email?: string;
 
-  @ApiPropertyOptional({ example: '19902692512000001' })
-  @IsString()
-  @IsOptional()
-  nidNumber?: string;
-
   @ApiPropertyOptional({ example: 'Software Engineer' })
   @IsString()
   @IsOptional()
   profession?: string;
-
-  @ApiPropertyOptional({ example: 'Wife: 01711000001' })
-  @IsString()
-  @IsOptional()
-  emergencyContact?: string;
 }
 
 export class CreateTenantLeaseDto {

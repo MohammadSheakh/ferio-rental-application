@@ -5,6 +5,7 @@ import {
   Patch,
   Body,
   Query,
+  Param,
   Req,
   BadRequestException,
   HttpCode,
@@ -13,26 +14,63 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CrmLeadStatus, CrmLeadSource } from '@prisma/tenant-client';
+import {
+  IsEmail,
+  IsEnum,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  Max,
+} from 'class-validator';
 import { TenantCrmService } from './tenant-crm.service';
-import { DomainWriteGuard, RequireMemberDomain } from './member-access.guard';
+import { JwtAuthGuard } from '../../infrastructure/identity/jwt-auth.guard';
+import { ActiveMemberGuard, DomainWriteGuard, RequireMemberDomain } from './member-access.guard';
 
 class CreateLeadDto {
+  @IsString() @IsNotEmpty()
   name!: string;
+
+  @IsOptional() @IsString()
   phone?: string;
+
+  @IsOptional() @IsEmail()
   email?: string;
+
+  @IsOptional() @IsEnum(CrmLeadSource)
   source?: CrmLeadSource;
+
+  @IsOptional() @IsString()
   interestedUnitId?: string;
+
+  @IsOptional() @IsString()
   assignedTo?: string;
+
+  @IsOptional() @IsString()
   brokerName?: string;
+
+  @IsOptional() @IsString()
   notes?: string;
 }
 
 class UpdateLeadDto {
+  @IsOptional() @IsEnum(CrmLeadStatus)
   status?: CrmLeadStatus;
+
+  @IsOptional() @IsString()
   assignedTo?: string;
+
+  @IsOptional() @IsString()
   phone?: string;
+
+  @IsOptional() @IsEmail()
   email?: string;
+
+  @IsOptional() @IsString()
   notes?: string;
+
+  @IsOptional() @IsString()
   lostReason?: string;
 }
 
@@ -40,14 +78,39 @@ class UpdateLeadDto {
  * Broker CRM (§ Week 30) — lead pipeline through lease conversion.
  * All writes are leasing-domain gated.
  */
+
+class ConvertLeadDto {
+  @IsString() @IsNotEmpty()
+  leadId!: string;
+
+  @IsString() @IsNotEmpty()
+  unitId!: string;
+
+  @IsString() @IsNotEmpty()
+  startDate!: string;
+
+  @IsString() @IsNotEmpty()
+  endDate!: string;
+
+  @IsNumber() @Min(1)
+  monthlyRent!: number;
+
+  @IsOptional() @IsNumber()
+  securityDeposit?: number;
+
+  @IsOptional() @IsNumber() @Min(0) @Max(100)
+  brokerCommissionPct?: number;
+}
+
 @ApiTags('Tenant CRM')
 @ApiBearerAuth()
+@UseGuards(JwtAuthGuard, ActiveMemberGuard)
 @Controller('tenant/crm')
 export class TenantCrmController {
   constructor(private readonly crm: TenantCrmService) {}
 
   @Post('leads')
-  @UseGuards(DomainWriteGuard)
+  @UseGuards(JwtAuthGuard, ActiveMemberGuard, DomainWriteGuard)
   @RequireMemberDomain('leasing')
   @ApiOperation({ summary: 'Create a lead (marketplace inquiry, walk-in, referral…)' })
   async createLead(@Req() req: any, @Body() body: CreateLeadDto) {
@@ -66,11 +129,11 @@ export class TenantCrmController {
   }
 
   @Patch('leads/:leadId')
-  @UseGuards(DomainWriteGuard)
+  @UseGuards(JwtAuthGuard, ActiveMemberGuard, DomainWriteGuard)
   @RequireMemberDomain('leasing')
   async updateLead(
     @Req() req: any,
-    @Query('leadId') leadId: string,
+    @Param('leadId') leadId: string,
     @Body() body: UpdateLeadDto,
   ) {
     return this.crm.updateLead(this.orgId(req), leadId, body);
@@ -83,7 +146,7 @@ export class TenantCrmController {
 
   @Post('leads/:leadId/convert')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(DomainWriteGuard)
+  @UseGuards(JwtAuthGuard, ActiveMemberGuard, DomainWriteGuard)
   @RequireMemberDomain('leasing')
   @ApiOperation({
     summary: 'Convert a NEGOTIATING lead → renter + ACTIVE lease (+ broker commission capture)',
@@ -91,15 +154,7 @@ export class TenantCrmController {
   async convertLead(
     @Req() req: any,
     @Body()
-    body: {
-      leadId: string;
-      unitId: string;
-      startDate: string;
-      endDate: string;
-      monthlyRent: number;
-      securityDeposit?: number;
-      brokerCommissionPct?: number;
-    },
+    body: ConvertLeadDto,
   ) {
     if (!body?.leadId || !body?.unitId || !body?.monthlyRent) {
       throw new BadRequestException('leadId, unitId and monthlyRent are required');

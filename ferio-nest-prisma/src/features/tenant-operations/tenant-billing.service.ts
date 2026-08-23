@@ -217,9 +217,9 @@ export class TenantBillingService {
       if (!payment) throw new NotFoundException('Payment not found');
       if (payment.status === PaymentStatus.VERIFIED) return payment;
       if (
-        ![PaymentStatus.PENDING, PaymentStatus.REPORTED].includes(
-          payment.status as PaymentStatus,
-        )
+        ![PaymentStatus.PENDING, PaymentStatus.REPORTED]
+          .map(String)
+          .includes(String(payment.status))
       ) {
         throw new BadRequestException(`Cannot verify a ${payment.status} payment`);
       }
@@ -267,9 +267,9 @@ export class TenantBillingService {
         throw new BadRequestException('Rejection reason is required');
       }
       if (
-        ![PaymentStatus.PENDING, PaymentStatus.REPORTED].includes(
-          payment.status as PaymentStatus,
-        )
+        ![PaymentStatus.PENDING, PaymentStatus.REPORTED]
+          .map(String)
+          .includes(String(payment.status))
       ) {
         throw new BadRequestException(`Cannot reject a ${payment.status} payment`);
       }
@@ -313,9 +313,9 @@ export class TenantBillingService {
       const payment = await tx.payment.findUnique({ where: { id: paymentId } });
       if (!payment) throw new NotFoundException('Payment not found');
       if (
-        ![PaymentStatus.VERIFIED, PaymentStatus.SETTLED].includes(
-          payment.status as PaymentStatus,
-        )
+        ![PaymentStatus.VERIFIED, PaymentStatus.SETTLED]
+          .map(String)
+          .includes(String(payment.status))
       ) {
         throw new BadRequestException(`Cannot reverse a ${payment.status} payment`);
       }
