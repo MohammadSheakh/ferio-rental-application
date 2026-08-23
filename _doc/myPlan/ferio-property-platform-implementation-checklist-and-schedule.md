@@ -1143,7 +1143,7 @@ Subscription
 
 ## Week 28 — Renter Portal / PWA
 
-> **v2.1 implementation:** COMPLETE on the API side — `/renter/*` covers dashboard, lease, statements, payment instructions, report-payment, receipts, utilities, maintenance, notices and documents. Marketplace-web hosts the "My Rental" UI + PWA manifest/icon shell (service worker pending for full offline PWA).
+> **v2.1 implementation:** COMPLETE on the API side — `/renter/*` covers dashboard, lease, statements, payment instructions, report-payment, receipts, utilities, maintenance, notices and documents. Marketplace-web hosts the "My Rental" UI; saas-web hosts the Owner Portal UI (prog-22). PWA manifest/icon shell present (service worker pending).
 
 - [x] dashboard *(GET /renter/me tenancy snapshot)*
 - [x] lease *(dates, rent, status)*
@@ -1206,7 +1206,7 @@ Checklist:
 - [x] counteroffer *(counterAmount on same row)*
 - [x] broker attribution *(brokerAccountId captured on offer)*
 - [x] controlled document sharing *(per-viewer visibility enforced since prog-16 era)*
-- [x] sale timeline *(offer statuses + decidedAt history; dedicated timeline endpoint pending)*
+- [x] sale timeline *(GET /marketplace/listings/:id/sale-timeline — inquiries + offers + counters + decisions merged)*
 
 ## Week 32 — Automation
 

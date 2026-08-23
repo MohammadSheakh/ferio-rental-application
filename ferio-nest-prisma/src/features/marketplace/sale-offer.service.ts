@@ -221,4 +221,89 @@ export class SaleOfferService {
     }
     return this.markSold(offer.listingId, offer.id, offer.amount);
   }
+
+  /**
+   * Sale timeline (§ Week 31 tail): inquiries + offers + decisions
+   * merged chronologically for the listing owner.
+   */
+  async saleTimeline(listingId: string, sellerAccountId: string) {
+    const listing = await this.marketplacePrisma.propertyListing.findUnique({
+      where: { id: listingId },
+      select: { sellerId: true },
+    });
+    if (!listing) throw new NotFoundException('Listing not found');
+    if (listing.sellerId !== sellerAccountId) {
+      throw new ForbiddenException('Only the listing owner can view the timeline');
+    }
+
+    const [inquiries, offers] = await Promise.all([
+      this.marketplacePrisma.inquiry.findMany({
+        where: { listingId },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          createdAt: true,
+          message: true,
+          sender: { select: { displayName: true } },
+        },
+      }),
+      this.marketplacePrisma.saleOffer.findMany({
+        where: { listingId },
+        orderBy: { createdAt: 'asc' },
+        include: { buyer: { select: { displayName: true } } },
+      }),
+    ]);
+
+    const events: Array<{
+      at: string;
+      type: 'INQUIRY' | 'OFFER' | 'COUNTER' | 'DECISION';
+      actor: string;
+      detail?: string;
+    }> = [
+      ...inquiries.map((i) => ({
+        at: String(i.createdAt),
+        type: 'INQUIRY' as const,
+        actor: i.sender.displayName ?? 'buyer',
+        detail: i.message?.slice(0, 120),
+      })),
+      ...offers.flatMap((o) => {
+        const rows: Array<{
+          at: string;
+          type: 'OFFER' | 'COUNTER' | 'DECISION';
+          actor: string;
+          detail?: string;
+        }> = [
+          {
+            at: String(o.createdAt),
+            type: 'OFFER' as const,
+            actor: o.buyer.displayName ?? 'buyer',
+            detail: `Offer ৳${o.amount.toLocaleString()}`,
+          },
+        ];
+        if (o.counterAmount != null && o.status === SaleOfferStatus.COUNTERED) {
+          rows.push({
+            at: String(o.updatedAt),
+            type: 'COUNTER' as const,
+            actor: 'seller',
+            detail: `Counter ৳${o.counterAmount.toLocaleString()}`,
+          });
+        }
+        if (o.decidedAt) {
+          rows.push({
+            at: String(o.decidedAt),
+            type: 'DECISION' as const,
+            actor: String(o.status).toLowerCase(),
+            detail: `৳${(
+              o.status === SaleOfferStatus.ACCEPTED
+                ? (o.counterAmount ?? o.amount)
+                : o.amount
+            ).toLocaleString()}`,
+          });
+        }
+        return rows;
+      }),
+    ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+
+    return { listingId, events };
+  }
 }

@@ -113,7 +113,8 @@ export class OwnerPortalService {
       throw new NotFoundException('No unit ownership found for this account');
     }
 
-    const units = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const units: any[] = [];
     let totalOutstanding = 0;
     let totalExpectedMonthly = 0;
 
@@ -164,7 +165,8 @@ export class OwnerPortalService {
     const ctxs = await this.locateAll(centralUserId);
     if (ctxs.length === 0) return [];
 
-    const all = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const all: any[] = [];
     for (const c of ctxs) {
       const rows = await c.db.invoice.findMany({
         where: { billingAccount: { unitId: c.unitId } },
@@ -200,7 +202,8 @@ export class OwnerPortalService {
   /** Maintenance tickets on any owned unit (visibility only). */
   async listMaintenance(centralUserId: string) {
     const ctxs = await this.locateAll(centralUserId);
-    const out = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const out: any[] = [];
     for (const c of ctxs) {
       const rows = await c.db.maintenanceRequest.findMany({
         where: { unitId: c.unitId },

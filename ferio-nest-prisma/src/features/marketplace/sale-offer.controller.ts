@@ -120,6 +120,16 @@ export class SaleOfferController {
     return this.offers.reject(offerId, sellerId);
   }
 
+  @Get('listings/:listingId/sale-timeline')
+  @ApiOperation({ summary: 'Seller: chronological sale timeline (inquiries, offers, decisions)' })
+  async saleTimeline(
+    @Identity() identity: IdentityType | null,
+    @Param('listingId') listingId: string,
+  ) {
+    const sellerId = await this.accountId(identity);
+    return this.offers.saleTimeline(listingId, sellerId);
+  }
+
   @Post('offers/:offerId/withdraw')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Buyer withdraws their own pending offer' })

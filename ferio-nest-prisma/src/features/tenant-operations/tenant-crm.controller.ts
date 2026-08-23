@@ -227,6 +227,9 @@ export class TenantCrmController {
     @Body() body: { method: string; reference?: string; recordedBy?: string },
   ) {
     if (!body?.method) throw new BadRequestException('method is required');
-    return this.crm.settlePayout(this.orgId(req), payoutId, body);
+    return this.crm.settlePayout(this.orgId(req), payoutId, {
+      ...body,
+      method: body.method as any,
+    });
   }
 }

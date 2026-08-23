@@ -28,7 +28,7 @@ export class OwnerPortalController {
   })
   async me(@Identity() identity: IdentityType | null) {
     this.require(identity);
-    return this.portal.me(identity.userId);
+    return this.portal.me(identity!.userId);
   }
 
   @Get('invoices')
@@ -38,7 +38,7 @@ export class OwnerPortalController {
     @Query('unitId') unitId?: string,
   ) {
     this.require(identity);
-    const all = await this.portal.listInvoices(identity.userId);
+    const all = await this.portal.listInvoices(identity!.userId);
     return unitId ? all.filter((i) => (i as any).billingAccount?.unit?.id === unitId) : all;
   }
 
@@ -46,13 +46,13 @@ export class OwnerPortalController {
   @ApiOperation({ summary: 'Maintenance tickets on any owned unit' })
   async maintenance(@Identity() identity: IdentityType | null) {
     this.require(identity);
-    return this.portal.listMaintenance(identity.userId);
+    return this.portal.listMaintenance(identity!.userId);
   }
 
   private require(identity: IdentityType | null): string {
     if (!identity?.userId) {
       throw new Error('Missing authenticated identity');
     }
-    return identity.userId;
+    return identity!.userId;
   }
 }
