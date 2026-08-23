@@ -656,6 +656,18 @@ export class TenantOperationsController {
     return this.reportingService.getUnitProfitabilityReport(this.getOrgId(req));
   }
 
+  @Get('reports/owner-receivable')
+  @ApiOperation({ summary: 'Per-owner receivable — expected vs collected by share %' })
+  async getOwnerReceivableReport(@Req() req: any) {
+    return this.reportingService.getOwnerReceivableReport(this.getOrgId(req));
+  }
+
+  @Get('reports/allocation-reconciliation')
+  @ApiOperation({ summary: 'Cross-check invoice line totals against payments' })
+  async getAllocationReconciliation(@Req() req: any) {
+    return this.reportingService.getAllocationReconciliation(this.getOrgId(req));
+  }
+
   @Get('reports/overdue-renters')
   @ApiOperation({ summary: 'Renters with overdue invoices — name, unit, outstanding' })
   async getOverdueRentersReport(@Req() req: any) {

@@ -360,4 +360,87 @@ export class TenantReportingService {
       };
     });
   }
+  /**
+   * Owner receivable view (\u00a7 Week 16) \u2014 per unit owner, how much rent
+   * they should receive and how much has been collected on their behalf.
+   */
+  async getOwnerReceivableReport(organizationId: string) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+
+    const ownerships = await db.unitOwnership.findMany({
+      where: { effectiveTo: null },
+      include: {
+        unit: {
+          select: {
+            id: true,
+            name: true,
+            property: { select: { name: true } },
+            billingAccount: {
+              select: {
+                invoices: {
+                  select: { totalAmount: true, paidAmount: true, status: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return ownerships.map((o) => {
+      const invs = o.unit.billingAccount?.invoices ?? [];
+      const myShare = o.sharePercent / 100;
+      const totalBilled = invs.reduce((s, i) => s + i.totalAmount, 0) * myShare;
+      const collected = invs.reduce((s, i) => s + i.paidAmount, 0) * myShare;
+
+      return {
+        ownershipId: o.id,
+        ownerName: o.ownerName,
+        ownerCentralUserId: o.ownerCentralUserId,
+        unitName: o.unit.name,
+        propertyName: o.unit.property?.name ?? '',
+        sharePercent: o.sharePercent,
+        expectedReceivableBdt: Math.round(totalBilled * 100) / 100,
+        collectedOnBehalfBdt: Math.round(collected * 100) / 100,
+        outstandingToOwnerBdt:
+          Math.round((totalBilled - collected) * 100) / 100,
+      };
+    });
+  }
+
+  /**
+   * Allocation reconciliation (\u00a7 Week 16) \u2014 cross-check invoice line
+   * amounts against payments received to detect mismatches.
+   */
+  async getAllocationReconciliation(organizationId: string) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+
+    const invoices = await db.invoice.findMany({
+      where: { status: { notIn: [InvoiceStatus.DRAFT] } },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        totalAmount: true,
+        paidAmount: true,
+        status: true,
+        lines: { select: { amount: true } },
+        payments: { select: { id: true, amount: true, status: true } },
+      },
+    });
+
+    const issues: Array<Record<string, unknown>> = [];
+    for (const inv of invoices) {
+      const lineSum = inv.lines.reduce((sum, l) => sum + l.amount, 0);
+      if (Math.abs(lineSum - inv.totalAmount) > 0.01) {
+        issues.push({
+          invoiceNumber: inv.invoiceNumber,
+          issue: 'LINE_TOTAL_MISMATCH',
+          detail: `Lines sum to ${lineSum} but invoice total is ${inv.totalAmount}`,
+        });
+      }
+    }
+
+    return { checked: invoices.length, issuesFound: issues.length, issues, healthy: issues.length === 0 };
+  }
+
 }

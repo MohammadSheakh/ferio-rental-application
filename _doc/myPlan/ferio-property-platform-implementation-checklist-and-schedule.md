@@ -753,16 +753,16 @@ Inquiry
 
 Checklist:
 
-- [ ] inquiry import
-- [ ] renter profile
-- [ ] guarantor basic support
-- [ ] lease
-- [ ] reservation
-- [ ] activation
-- [ ] unit occupied
-- [ ] listing rented
-- [ ] deposit
-- [ ] occupants
+- [x] inquiry import *(marketplace inquiries auto-attribute as CRM leads — prog-18)*
+- [x] renter profile
+- [x] guarantor basic support
+- [x] lease
+- [x] reservation
+- [x] activation
+- [x] unit occupied
+- [x] listing rented
+- [x] deposit
+- [x] occupants
 - [ ] lease documents
 
 ## Week 14 — Direct Rent Beneficiary
@@ -871,8 +871,8 @@ Checklist:
 - [x] beneficiary per line
 - [x] amount routing *(routing data stored; no payment-splitting engine)*
 - [x] consolidated renter statement
-- [ ] owner receivable view
-- [ ] management receivable view
+- [x] owner receivable view *(per-owner expected vs collected by share %)*
+- [x] management receivable view *(beneficiary split covers this)*
 - [ ] allocation reconciliation
 
 ## Weeks 17–18 — Utilities
