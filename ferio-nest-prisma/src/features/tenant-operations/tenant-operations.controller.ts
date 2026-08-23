@@ -619,4 +619,28 @@ export class TenantOperationsController {
   async getMaintenanceReport(@Req() req: any) {
     return this.reportingService.getMaintenanceReport(this.getOrgId(req));
   }
+
+  @Get('reports/overdue-renters')
+  @ApiOperation({ summary: 'Renters with overdue invoices — name, unit, outstanding' })
+  async getOverdueRentersReport(@Req() req: any) {
+    return this.reportingService.getOverdueRentersReport(this.getOrgId(req));
+  }
+
+  @Get('reports/lease-expiry')
+  @ApiOperation({ summary: 'ACTIVE leases expiring within N days' })
+  async getLeaseExpiryReport(
+    @Req() req: any,
+    @Query('days') days?: string,
+  ) {
+    return this.reportingService.getLeaseExpiryReport(
+      this.getOrgId(req),
+      days ? parseInt(days, 10) : undefined,
+    );
+  }
+
+  @Get('reports/utility-collection')
+  @ApiOperation({ summary: 'Utility + service charge collection breakdown by category' })
+  async getUtilityCollectionReport(@Req() req: any) {
+    return this.reportingService.getUtilityCollectionReport(this.getOrgId(req));
+  }
 }

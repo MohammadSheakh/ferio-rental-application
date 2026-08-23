@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { TenantDatabaseManager } from '../../infrastructure/tenant/tenant-database.manager';
 import { EntitlementService } from '../../infrastructure/entitlements/entitlement.service';
+    import { AutomationService } from '../../features/automation/automation.service';
 import {
   MaintenanceScope,
   MaintenanceUrgency,
@@ -34,6 +35,7 @@ export class TenantMaintenanceService {
   constructor(
     private readonly tenantDbManager: TenantDatabaseManager,
     private readonly entitlements: EntitlementService,
+    private readonly automation: AutomationService,
   ) {}
 
   async createMaintenanceRequest(
@@ -59,6 +61,16 @@ export class TenantMaintenanceService {
         status: MaintenanceStatus.OPEN,
       },
     });
+
+    // Fire MAINTENANCE_OPENED automation (best-effort)
+    await this.automation
+      .evaluate(organizationId, 'MAINTENANCE_OPENED', {
+        refId: request.id,
+        vars: { title: input.title, unitId: input.unitId ?? '' },
+      })
+      .catch(() => {});
+
+    return request;
   }
 
   async assignWorkOrder(organizationId: string, input: AssignWorkOrderInput) {

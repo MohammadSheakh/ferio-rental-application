@@ -74,3 +74,24 @@ Platform job triggers added: `/platform/jobs/overdue-invoice-scan` and `/jobs/le
 ---
 
 *Progress chain: prog-08 … prog-22 → **prog-23 (Week 32 Automation Engine)**.*
+
+
+Done — prog-23 shipped: Automation Engine (Week 32), committed & pushed
+Pushed
+061620d5e..4cb5db07a  main -> main
+12 files changed, 669 insertions(+), 37 deletions(-)
+Commit 4cb5db07a — feat(automation): Week 32 automation engine — rules, triggers, dry-run, history
+What was built
+Automation engine with staff-defined rules over domain triggers:
+Component	Detail
+Rules	name + trigger enum (INVOICE_OVERDUE, LEASE_EXPIRING, MAINTENANCE_OPENED, LISTING_EXPIRING, SUBSCRIPTION_PAST_DUE) + action enum (CREATE_NOTICE, INVOKE_WEBHOOK) + JSONB config
+Executions	unique (ruleId, refId) — at-most-once per reference; P2002 caught → SKIPPED_DUPLICATE; FAILED rows retryable; dry-run rows recorded without side effects
+Actions v1	CREATE_NOTICE (org-wide or unit-targeted, template placeholders) · INVOKE_WEBHOOK (HMAC-SHA256 signed POST, 10s timeout)
+API	CRUD + executions history + dry-run under /tenant/automations/*, JWT + ActiveMemberGuard
+Verified live — 11/11
+Rule created ✓ · overdue scan marked invoice ✓ · automation notice rendered with correct title ✓ · SUCCESS execution row ✓ · re-scan idempotent (no duplicate) ✓ · webhook rule fires → clean FAILED row for invalid URL ✓ · dry-run records without side effects ✓
+Session notes
+- Fixed a race where build completed after server launch → stale binary served old routes
+- Recurring shell cwd resets documented — always use explicit cd in each call
+- Prisma consent guard now required for all db push/migrate invocations
+Next (prog-24): Sale CRM timeline endpoint polish + analytics groundwork (Weeks 34–35), or external API/webhooks surface (Week 33).

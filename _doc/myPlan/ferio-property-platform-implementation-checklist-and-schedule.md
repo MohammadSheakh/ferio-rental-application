@@ -1045,16 +1045,16 @@ Channels:
 Tenant reports:
 
 - [x] occupancy
-- [ ] vacancy *(separate endpoint — occupancy report only)*
+- [x] vacancy *(vacancyRatePercent in occupancy report response)*
 - [x] rent due
 - [x] rent collected
 - [ ] owner receivable
-- [ ] utility collection
-- [ ] service charge
+- [x] utility collection
+- [x] service charge
 - [x] maintenance cost
 - [ ] unit profitability
-- [ ] lease expiry
-- [ ] overdue renters
+- [x] lease expiry
+- [x] overdue renters
 
 Platform reports:
 

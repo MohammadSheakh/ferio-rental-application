@@ -192,4 +192,119 @@ export class TenantReportingService {
       totalMaintenanceExpenditureBdt: totalCost,
     };
   }
+
+  /**
+   * Overdue renters report — renters with overdue invoices and amounts.
+   */
+  async getOverdueRentersReport(organizationId: string) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+
+    const overdueInvoices = await db.invoice.findMany({
+      where: { status: InvoiceStatus.OVERDUE },
+      include: {
+        billingAccount: {
+          include: {
+            unit: {
+              select: {
+                name: true,
+                property: { select: { name: true } },
+                leases: {
+                  where: { status: 'ACTIVE' },
+                  select: { renter: { select: { name: true, phone: true } } },
+                  take: 1,
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { dueDate: 'asc' },
+    });
+
+    return overdueInvoices.map((inv) => ({
+      invoiceNumber: inv.invoiceNumber,
+      renterName: inv.billingAccount?.unit?.leases[0]?.renter?.name ?? 'Unknown',
+      renterPhone: inv.billingAccount?.unit?.leases[0]?.renter?.phone ?? null,
+      unitName: inv.billingAccount?.unit?.name ?? '',
+      propertyName: inv.billingAccount?.unit?.property?.name ?? '',
+      totalAmount: inv.totalAmount,
+      paidAmount: inv.paidAmount,
+      outstandingBdt: Math.round((inv.totalAmount - inv.paidAmount) * 100) / 100,
+      dueDate: inv.dueDate,
+    }));
+  }
+
+  /**
+   * Lease expiry report — ACTIVE leases ending within the next N days.
+   */
+  async getLeaseExpiryReport(organizationId: string, daysAhead = 90) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    const now = new Date();
+    const cutoff = new Date(now.getTime() + daysAhead * 86_400_000);
+
+    const expiring = await db.lease.findMany({
+      where: { status: 'ACTIVE', endDate: { gte: now, lte: cutoff } },
+      include: {
+        unit: {
+          select: {
+            name: true,
+            property: { select: { name: true } },
+          },
+        },
+        renter: { select: { name: true, phone: true } },
+      },
+      orderBy: { endDate: 'asc' },
+    });
+
+    return expiring.map((l) => ({
+      leaseId: l.id,
+      unitName: l.unit.name,
+      propertyName: l.unit.property?.name ?? '',
+      renterName: l.renter.name,
+      renterPhone: l.renter.phone,
+      monthlyRent: l.monthlyRent,
+      endDate: l.endDate,
+      daysRemaining: Math.ceil(
+        (new Date(l.endDate).getTime() - now.getTime()) / 86_400_000,
+      ),
+    }));
+  }
+
+  /**
+   * Utility & service charge collection breakdown.
+   */
+  async getUtilityCollectionReport(organizationId: string) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+
+    const lines = await db.invoiceLine.findMany({
+      where: {
+        category: {
+          in: [
+            'ELECTRICITY', 'WATER', 'GAS', 'INTERNET',
+            'SECURITY', 'LIFT', 'CLEANING', 'GENERATOR',
+          ],
+        },
+      },
+      select: { category: true, amount: true, label: true },
+    });
+
+    const serviceChargeLines = await db.invoiceLine.findMany({
+      where: { category: 'SERVICE_CHARGE' },
+      select: { amount: true },
+    });
+
+    const byCategory: Record<string, number> = {};
+    for (const l of lines) {
+      byCategory[l.category] = (byCategory[l.category] ?? 0) + l.amount;
+    }
+
+    return {
+      utilityBreakdown: Object.fromEntries(
+        Object.entries(byCategory).map(([k, v]) => [k.toLowerCase(), Math.round(v * 100) / 100]),
+      ),
+      totalUtilityBdt: Math.round(lines.reduce((s, l) => s + l.amount, 0) * 100) / 100,
+      totalServiceChargeBdt:
+        Math.round(serviceChargeLines.reduce((s, l) => s + l.amount, 0) * 100) / 100,
+    };
+  }
 }

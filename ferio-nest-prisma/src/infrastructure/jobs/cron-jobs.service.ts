@@ -103,6 +103,22 @@ export class CronJobsService {
         });
 
         totalExpiringLeases += expiringLeases.length;
+
+        // Fire LEASE_EXPIRING automation per expiring lease
+        for (const lease of expiringLeases) {
+          await this.automation
+            .evaluate(org.id, 'LEASE_EXPIRING', {
+              refId: lease.id,
+              vars: {
+                unitName: lease.unit?.name ?? '',
+                renterName: lease.renter?.name ?? '',
+                endDate: lease.endDate.toISOString().split('T')[0],
+              },
+            })
+            .catch((e2: any) =>
+              this.logger.warn(`automation LEASE_EXPIRING failed: ${e2?.message}`),
+            );
+        }
       } catch (error: any) {
         this.logger.error(`Failed lease expiry scan for org ${org.slug}: ${error.message}`);
       }
