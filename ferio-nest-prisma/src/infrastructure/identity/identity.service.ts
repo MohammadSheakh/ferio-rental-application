@@ -22,6 +22,16 @@ import {
   REFRESH_TTL_DAYS,
 } from './identity.constants';
 
+export interface SessionTokens {
+  token: string;
+  refreshToken: string;
+}
+
+interface PlatformIdentityPayload extends IdentityPayload {
+  realm: 'platform';
+  role: string;
+}
+
 export interface IdentityPayload {
   userId: string;
   email: string;
@@ -68,7 +78,7 @@ export class IdentityService {
     password: string;
     displayName: string;
     phone?: string;
-  }): Promise<{ token: string; user: IdentityPayload }> {
+  }): Promise<SessionTokens & { user: IdentityPayload }> {
     const email = input.email.toLowerCase().trim();
 
     const existing = await this.controlPlane.centralUser.findUnique({
@@ -100,7 +110,7 @@ export class IdentityService {
     };
   }
 
-  async login(email: string, password: string): Promise<{ token: string; user: IdentityPayload }> {
+  async login(email: string, password: string): Promise<SessionTokens & { user: IdentityPayload }> {
     const user = await this.controlPlane.centralUser.findUnique({
       where: { email: email.toLowerCase().trim() },
     });
@@ -125,7 +135,7 @@ export class IdentityService {
    * Google Sign-In: the client obtains an ID token from Google
    * Identity Services; we verify it server-side and upsert the user.
    */
-  async googleLogin(credential: string): Promise<{ token: string; user: IdentityPayload }> {
+  async googleLogin(credential: string): Promise<SessionTokens & { user: IdentityPayload }> {
     if (!GOOGLE_CLIENT_ID) {
       throw new UnauthorizedException('Google sign-in is not configured on this server');
     }

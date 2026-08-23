@@ -282,7 +282,7 @@ export class TenantIamService {
   ): Promise<void> {
     await db.tenantAuditEvent
       .create({
-        data: { actorId, action, resourceType, resourceId, metadata },
+        data: { actorId, action, resourceType, resourceId, metadata: metadata as any },
       })
       .catch(() => {});
   }

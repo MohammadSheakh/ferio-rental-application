@@ -166,7 +166,7 @@ export class SubscriptionLifecycleService {
   async changePlan(organizationId: string, targetTier: keyof typeof PlanTier) {
     const sub = await this.getSubscription(organizationId);
     if (
-      ![SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING].includes(
+      ([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING] as SubscriptionStatus[]).includes(
         sub.status as SubscriptionStatus,
       )
     ) {

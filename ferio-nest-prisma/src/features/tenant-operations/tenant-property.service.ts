@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { TenantDatabaseManager } from '../../infrastructure/tenant/tenant-database.manager';
 import { EntitlementService } from '../../infrastructure/entitlements/entitlement.service';
 import { PropertyType, UnitType, UnitStatus } from '@prisma/tenant-client';
@@ -226,7 +226,7 @@ export class TenantPropertyService {
 
     const [owner] = await db.$transaction([
       db.unitOwnership.create({
-        data: { ...input, unitId, isPrimary },
+        data: { ...input, unitId, isPrimary } as any,
       }),
       db.tenantAuditEvent.create({
         data: {
@@ -330,7 +330,10 @@ export class TenantPropertyService {
       throw new BadRequestException('Empty payment destination');
     }
 
-    return db.unitOwnership.update({ where: { id: ownershipId }, data: payment });
+    return db.unitOwnership.update({
+      where: { id: ownershipId },
+      data: payment as any,
+    });
   }
 
   /** End an owner's stake (keeps history; cannot end the last remaining owner). */

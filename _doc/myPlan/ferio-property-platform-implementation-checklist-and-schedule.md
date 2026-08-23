@@ -1184,6 +1184,8 @@ Subscription
 
 ## Week 31 — Sale CRM
 
+> **v2.1 implementation:** SaleOffer lifecycle on SALE listings — buyer offers (JWT-authenticated), seller counter/accept/reject, buyer accept-counter; acceptance atomically marks the listing SOLD and rejects sibling offers. Controlled document sharing rides the existing per-viewer visibility rules.
+
 ```text
 Sale Listing
 → Buyer Inquiry
@@ -1197,12 +1199,12 @@ Sale Listing
 
 Checklist:
 
-- [ ] buyer profile
-- [ ] offer
-- [ ] counteroffer
-- [ ] broker attribution
-- [ ] controlled document sharing
-- [ ] sale timeline
+- [x] buyer profile *(marketplace accounts + central identity)*
+- [x] offer *(PENDING w/ self-offer + duplicate-pending guards)*
+- [x] counteroffer *(counterAmount on same row)*
+- [x] broker attribution *(brokerAccountId captured on offer)*
+- [x] controlled document sharing *(per-viewer visibility enforced since prog-16 era)*
+- [x] sale timeline *(offer statuses + decidedAt history; dedicated timeline endpoint pending)*
 
 ## Week 32 — Automation
 

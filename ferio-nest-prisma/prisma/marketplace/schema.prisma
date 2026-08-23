@@ -81,6 +81,14 @@ enum ViewingStatus {
   NO_SHOW
 }
 
+enum SaleOfferStatus {
+  PENDING
+  COUNTERED
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
 enum DocumentVisibility {
   PUBLIC
   VERIFIED_USERS
@@ -118,6 +126,7 @@ model MarketplaceAccount {
   inquiriesReceived Inquiry[] @relation("InquiryReceiver")
   favorites   Favorite[]
   viewingRequests ViewingRequest[]
+  saleOffers  SaleOffer[] @relation("SaleOffers")
 
   @@index([centralUserId])
   @@index([accountType])
@@ -194,6 +203,7 @@ model PropertyListing {
   favorites Favorite[]
   viewings  ViewingRequest[]
   moderationDecisions ModerationDecision[]
+  saleOffers SaleOffer[]
 
   @@index([purpose, status])
   @@index([assetType, status])
@@ -293,6 +303,33 @@ model ViewingRequest {
 
   @@index([listingId])
   @@index([requesterId])
+}
+
+/// Buyer offer on a SALE listing (§ Week 31 Sale CRM).
+/// Counter-offers reuse the same row: seller sets counterAmount, buyer
+/// accepts (→ SOLD at counterAmount) or rejects.
+model SaleOffer {
+  id         String          @id @default(cuid())
+  listingId  String
+  buyerId    String
+  amount     Float
+
+  status     SaleOfferStatus @default(PENDING)
+  /// Seller's response price when COUNTERED.
+  counterAmount Float?
+  note       String?
+  brokerAccountId String?   /// optional broker attribution
+
+  decidedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  listing PropertyListing    @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyer   MarketplaceAccount @relation("SaleOffers", fields: [buyerId], references: [id])
+
+  @@index([listingId])
+  @@index([buyerId])
+  @@index([status])
 }
 
 /// Moderation / abuse reports

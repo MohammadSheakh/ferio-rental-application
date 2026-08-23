@@ -14,8 +14,9 @@ export class JwtAuthGuard extends AuthGuard('identity-jwt') {}
  */
 @Injectable()
 export class OptionalJwtAuthGuard extends AuthGuard('identity-jwt') {
-  handleRequest(err: unknown, user: unknown) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  handleRequest(err: any, user: any, _info: any, _ctx: any, _status?: any): any {
     // Never throw — absence of identity is valid here.
-    return err ? null : (user as AuthPayload | null);
+    return err ? null : (user ?? null);
   }
 }

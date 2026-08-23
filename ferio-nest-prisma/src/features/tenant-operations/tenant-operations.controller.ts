@@ -29,6 +29,7 @@ import {
   GenerateInvoiceDto,
   RecordPaymentDto,
   CreateUtilityAccountDto,
+  CreateMeterDto,
   RecordMeterReadingDto,
   CreateMaintenanceRequestDto,
   AssignWorkOrderDto,

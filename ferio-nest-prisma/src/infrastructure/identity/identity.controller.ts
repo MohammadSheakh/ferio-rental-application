@@ -14,7 +14,8 @@ import { JwtAuthGuard, OptionalJwtAuthGuard } from './jwt-auth.guard';
 import { Identity } from './identity.decorators';
 import type { Identity as IdentityType } from './identity.decorators';
 import { PlatformAdminGuard } from './platform-admin.guard';
-import { CurrentStaff, StaffPayload } from './platform-admin.guard';
+import { CurrentStaff } from './platform-admin.guard';
+import type { StaffPayload } from './platform-admin.guard';
 
 class RegisterDto {
   @IsEmail()
@@ -121,7 +122,7 @@ export class IdentityController {
   @ApiOperation({
     summary: 'Organizations where the authenticated identity holds an ACTIVE membership',
   })
-  async myOrganizations(@Identity() identity: Identity | null) {
+  async myOrganizations(@Identity() identity: IdentityType | null) {
     return this.identity.listMyOrganizations(identity!.userId);
   }
 
@@ -170,7 +171,7 @@ export class IdentityController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Current central identity' })
-  async me(@Identity() identity: Identity | null) {
+  async me(@Identity() identity: IdentityType | null) {
     return this.identity.getMe(identity!.userId);
   }
 }
