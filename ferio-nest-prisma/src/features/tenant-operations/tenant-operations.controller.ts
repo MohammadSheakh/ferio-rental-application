@@ -650,6 +650,12 @@ export class TenantOperationsController {
     return this.reportingService.getMaintenanceReport(this.getOrgId(req));
   }
 
+  @Get('reports/unit-profitability')
+  @ApiOperation({ summary: 'Revenue vs maintenance cost per unit' })
+  async getUnitProfitabilityReport(@Req() req: any) {
+    return this.reportingService.getUnitProfitabilityReport(this.getOrgId(req));
+  }
+
   @Get('reports/overdue-renters')
   @ApiOperation({ summary: 'Renters with overdue invoices — name, unit, outstanding' })
   async getOverdueRentersReport(@Req() req: any) {

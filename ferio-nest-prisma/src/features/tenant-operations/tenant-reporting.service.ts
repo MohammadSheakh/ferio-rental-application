@@ -307,4 +307,57 @@ export class TenantReportingService {
         Math.round(serviceChargeLines.reduce((s, l) => s + l.amount, 0) * 100) / 100,
     };
   }
+
+  /**
+   * Unit profitability — revenue collected vs maintenance cost per unit.
+   */
+  async getUnitProfitabilityReport(organizationId: string) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+
+    const units = await db.unit.findMany({
+      select: {
+        id: true,
+        name: true,
+        property: { select: { name: true } },
+        billingAccount: {
+          select: {
+            invoices: { select: { totalAmount: true, paidAmount: true, status: true } },
+          },
+        },
+        maintenanceRequests: {
+          include: { workOrders: { select: { cost: true } } },
+        },
+        leases: {
+          where: { status: 'ACTIVE' },
+          select: { monthlyRent: true },
+          take: 1,
+        },
+      },
+    });
+
+    return units.map((u) => {
+      const billed = u.billingAccount?.invoices?.reduce((s, i) => s + i.totalAmount, 0) ?? 0;
+      const collected =
+        u.billingAccount?.invoices?.reduce((s, i) => s + i.paidAmount, 0) ?? 0;
+      const maintenanceCost = u.maintenanceRequests.reduce(
+        (sum, mr) => sum + mr.workOrders.reduce((ws, wo) => ws + (wo.cost ?? 0), 0),
+        0,
+      );
+      const netIncome = Math.round((collected - maintenanceCost) * 100) / 100;
+
+      return {
+        unitId: u.id,
+        unitName: u.name,
+        propertyName: u.property?.name ?? '',
+        activeLeaseRent: u.leases[0]?.monthlyRent ?? null,
+        totalBilledBdt: billed,
+        collectedBdt: collected,
+        outstandingBdt: Math.round((billed - collected) * 100) / 100,
+        maintenanceCostBdt: maintenanceCost,
+        netIncomeBdt: netIncome,
+        profitabilityPercent:
+          billed > 0 ? Number((((netIncome / billed) * 100)).toFixed(1)) : 0,
+      };
+    });
+  }
 }

@@ -1052,7 +1052,7 @@ Tenant reports:
 - [x] utility collection
 - [x] service charge
 - [x] maintenance cost
-- [ ] unit profitability
+- [x] unit profitability
 - [x] lease expiry
 - [x] overdue renters
 
@@ -1061,7 +1061,7 @@ Platform reports:
 - [ ] organizations
 - [ ] subscriptions
 - [ ] listings
-- [ ] inquiry conversion
+- [x] inquiry conversion
 - [ ] active plans
 
 ## Week 24 — Release 2 Hardening
@@ -1237,7 +1237,7 @@ Marketplace:
 - [ ] listing volume
 - [ ] area demand
 - [ ] search activity
-- [ ] inquiry conversion
+- [x] inquiry conversion
 - [ ] rent ranges
 - [ ] sale ranges
 - [ ] property-type trends

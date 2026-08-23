@@ -20,6 +20,7 @@ import { EntitlementService } from '../entitlements/entitlement.service';
 import { PlatformAdminGuard, PlatformRoles } from '../identity/platform-admin.guard';
 import { SubscriptionLifecycleService } from '../subscriptions/subscription-lifecycle.service';
 import { CronJobsService } from '../jobs/cron-jobs.service';
+import { MarketplacePrismaService } from '../marketplace/marketplace-prisma.service';
 
 /**
  * Platform Admin Controller
@@ -45,6 +46,7 @@ export class PlatformAdminController {
     private readonly entitlements: EntitlementService,
     private readonly subscriptions: SubscriptionLifecycleService,
     private readonly cronJobs: CronJobsService,
+    private readonly marketplacePrisma: MarketplacePrismaService,
   ) {}
 
   // ────────────────────────────────────────────────────────────
@@ -416,6 +418,54 @@ export class PlatformAdminController {
   @ApiOperation({ summary: 'Mark ACTIVE subscriptions past period-end as PAST_DUE (grace starts)' })
   async runPastDueScan() {
     return this.cronJobs.runSubscriptionPastDueScan();
+  }
+
+  @Get('analytics')
+  @ApiOperation({ summary: 'Platform analytics — orgs, MRR, listings, conversion' })
+  async platformAnalytics() {
+    const orgs = await this.controlPlane.saasOrganization.findMany({
+      select: {
+        status: true,
+        subscription: { select: { plan: { select: { tier: true, monthlyPriceBdt: true } } } },
+      },
+    });
+    const plans = await this.controlPlane.plan.findMany({ where: { isActive: true } });
+    const listings = await this.marketplacePrisma.propertyListing.groupBy({
+      by: ['purpose', 'status'],
+      _count: { _all: true },
+    });
+    const inquiryCount = await this.marketplacePrisma.inquiry.count();
+    const offerCount = await this.marketplacePrisma.saleOffer.count();
+
+    const activeOrgs = orgs.filter((o) => o.status === 'ACTIVE').length;
+    const mrr = orgs.reduce((sum, o) => {
+      const price = (o as any).subscription?.plan?.monthlyPriceBdt ?? 0;
+      return sum + ((o as any).subscription?.status === 'ACTIVE' ? price : 0);
+    }, 0);
+
+    const listingCounts = new Map<string, number>();
+    for (const l of listings) {
+      const key = `${l.purpose.toLowerCase()}_${l.status.toLowerCase()}`;
+      listingCounts.set(key, l._count._all);
+    }
+    const totalListings = [...listingCounts.values()].reduce((a, b) => a + b, 0);
+
+    return {
+      organizations: {
+        total: orgs.length,
+        active: activeOrgs,
+      },
+      mrrBdt: mrr,
+      listings: {
+        total: totalListings,
+        byStatus: Object.fromEntries(listingCounts),
+        inquiryCount: inquiryCount,
+        saleOfferCount: offerCount,
+        inquiryConversionPercent:
+          inquiryCount > 0 ? Number(((offerCount / inquiryCount) * 100).toFixed(1)) : 0,
+      },
+      activePlans: plans.map((p) => ({ tier: p.tier, name: p.name, monthlyPriceBdt: p.monthlyPriceBdt })),
+    };
   }
 
   // ────────────────────────────────────────────────────────────
