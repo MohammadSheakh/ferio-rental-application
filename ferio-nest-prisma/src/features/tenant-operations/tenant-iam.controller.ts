@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   Post,
   Patch,
@@ -7,6 +8,7 @@ import {
   Param,
   Req,
   BadRequestException,
+  ForbiddenException,
   HttpCode,
   HttpStatus,
   UseGuards,
@@ -22,6 +24,7 @@ import {
 import { MemberRole, MemberStatus } from '@prisma/tenant-client';
 import { TenantIamService } from './tenant-iam.service';
 import { JwtAuthGuard } from '../../infrastructure/identity/jwt-auth.guard';
+import { ActiveMemberGuard, DomainWriteGuard, RequireMemberDomain } from './member-access.guard';
 import { Identity } from '../../infrastructure/identity/identity.decorators';
 import type { Identity as IdentityType } from '../../infrastructure/identity/identity.decorators';
 import { TenantContext } from '../../infrastructure/tenant/tenant-resolver.middleware';
@@ -100,6 +103,7 @@ export class TenantIamController {
   // ── Invites ──
 
   @Post('invites')
+  @UseGuards(JwtAuthGuard, ActiveMemberGuard)
   @ApiOperation({
     summary: 'Invite a staff member (single-use token, 7-day expiry)',
   })
@@ -113,6 +117,7 @@ export class TenantIamController {
   }
 
   @Get('invites')
+  @UseGuards(JwtAuthGuard, ActiveMemberGuard)
   @ApiOperation({ summary: 'List membership invites' })
   async listInvites(
     @Req() req: any,
@@ -123,6 +128,7 @@ export class TenantIamController {
   }
 
   @Patch('invites/:inviteId/revoke')
+  @UseGuards(JwtAuthGuard, ActiveMemberGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Revoke a pending invite' })
   async revokeInvite(
@@ -160,6 +166,7 @@ export class TenantIamController {
   // ── Members ──
 
   @Get('members')
+  @UseGuards(JwtAuthGuard, ActiveMemberGuard)
   @ApiOperation({ summary: 'List workspace members with roles and scopes' })
   async listMembers(
     @Req() req: any,
@@ -170,6 +177,7 @@ export class TenantIamController {
   }
 
   @Patch('members/:memberId')
+  @UseGuards(JwtAuthGuard, ActiveMemberGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update member role, status, or resource scopes' })
   async updateMember(
@@ -180,5 +188,58 @@ export class TenantIamController {
   ) {
     const { organizationId, actorId } = this.ctx(req, identity);
     return this.iam.updateMember(organizationId, actorId, memberId, dto);
+  }
+
+  // ── § Week 9 Delegations (owner-only) ──
+
+  @Post('delegations')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard, ActiveMemberGuard, DomainWriteGuard)
+  @RequireMemberDomain('none')
+  @ApiOperation({
+    summary:
+      'Grant temporary write domains to another member (ORGANIZATION_OWNER only)',
+  })
+  async createDelegation(
+    @Req() req: any,
+    @Identity() identity: IdentityType | null,
+    @Body()
+    body: { toMemberId: string; domains: string[]; expiresAt?: string },
+  ) {
+    const member = (req as any).member;
+    if (member?.role !== 'ORGANIZATION_OWNER') {
+      throw new ForbiddenException('Only ORGANIZATION_OWNER can delegate');
+    }
+    return this.iam.createDelegation(
+      req.tenantContext?.organizationId,
+      member.id,
+      body,
+    );
+  }
+
+  @Get('delegations')
+  @UseGuards(JwtAuthGuard, ActiveMemberGuard)
+  @ApiOperation({ summary: 'Delegations I granted or received' })
+  async listDelegations(@Req() req: any, @Identity() identity: IdentityType | null) {
+    const ctx = this.ctx(req, identity);
+    return this.iam.listDelegations(ctx.organizationId, (req as any).member?.id);
+  }
+
+  @Delete('delegations/:id')
+  @UseGuards(JwtAuthGuard, ActiveMemberGuard, DomainWriteGuard)
+  @RequireMemberDomain('none')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Revoke a delegation immediately (owner only)' })
+  async revokeDelegation(
+    @Req() req: any,
+    @Identity() identity: IdentityType | null,
+    @Param('id') id: string,
+  ) {
+    const ctx = this.ctx(req, identity);
+    const member = (req as any).member;
+    if (member?.role !== 'ORGANIZATION_OWNER') {
+      throw new ForbiddenException('Only ORGANIZATION_OWNER can revoke delegations');
+    }
+    return this.iam.revokeDelegation(ctx.organizationId, id);
   }
 }

@@ -309,4 +309,110 @@ export class TenantIamService {
   private expiry(): Date {
     return new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
   }
+
+  // ── § Week 9 Delegations ──
+
+  private static readonly DELEGATABLE = [
+    'inventory',
+    'billing',
+    'leasing',
+    'maintenance',
+  ];
+
+  async createDelegation(
+    organizationId: string,
+    fromMemberId: string,
+    input: { toMemberId: string; domains: string[]; expiresAt?: string },
+  ) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+
+    const valid = TenantIamService.DELEGATABLE;
+    const unknown = (input.domains ?? []).filter((x) => !valid.includes(x));
+    if (unknown.length) {
+      throw new BadRequestException(`Cannot delegate unknown domains: ${unknown.join(', ')}`);
+    }
+    if (!input.domains?.length) {
+      throw new BadRequestException('domains[] is required');
+    }
+
+    const [from, to] = await Promise.all([
+      db.member.findUnique({ where: { id: fromMemberId } }),
+      db.member.findUnique({ where: { id: input.toMemberId } }),
+    ]);
+    if (!to || to.status !== 'ACTIVE') {
+      throw new BadRequestException('Target member not found or inactive');
+    }
+    if (from && from.role !== 'ORGANIZATION_OWNER') {
+      // Delegations are owner-issued; the guard already checked, double-check.
+      throw new ForbiddenException('Only ORGANIZATION_OWNER can delegate');
+    }
+
+    const delegation = await db.memberDelegation.create({
+      data: {
+        fromMemberId,
+        toMemberId: input.toMemberId,
+        domains: input.domains,
+        expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      },
+    });
+
+    await db.tenantAuditEvent
+      .create({
+        data: {
+          actorId: fromMemberId,
+          action: 'iam.delegation_created',
+          resourceType: 'MemberDelegation',
+          resourceId: delegation.id,
+          metadata: { toMemberId: input.toMemberId, domains: input.domains, expiresAt: input.expiresAt ?? null } as any,
+        },
+      })
+      .catch(() => {});
+
+    return delegation;
+  }
+
+  async listDelegations(organizationId: string, memberId?: string) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    const rows = await db.memberDelegation.findMany({
+      where: memberId
+        ? {
+            OR: [{ fromMemberId: memberId }, { toMemberId: memberId }],
+          }
+        : undefined,
+      include: {
+        fromMember: { select: { centralUserId: true, role: true } },
+        toMember: { select: { centralUserId: true, role: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return rows.map((r) => ({
+      ...r,
+      active:
+        !r.revokedAt &&
+        (!r.expiresAt || r.expiresAt > new Date()),
+    }));
+  }
+
+  async revokeDelegation(organizationId: string, delegationId: string) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    const row = await db.memberDelegation.findUnique({ where: { id: delegationId } });
+    if (!row) throw new NotFoundException('Delegation not found');
+    if (row.revokedAt) return row;
+    const updated = await db.memberDelegation.update({
+      where: { id: delegationId },
+      data: { revokedAt: new Date() },
+    });
+    await db.tenantAuditEvent
+      .create({
+        data: {
+          action: 'iam.delegation_revoked',
+          resourceType: 'MemberDelegation',
+          resourceId: delegationId,
+          metadata: {} as any,
+        },
+      })
+      .catch(() => {});
+    return updated;
+  }
 }

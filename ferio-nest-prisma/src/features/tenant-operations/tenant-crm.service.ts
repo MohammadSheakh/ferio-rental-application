@@ -14,6 +14,7 @@ import {
   UnitStatus,
 } from '@prisma/tenant-client';
 import { TenantDatabaseManager } from '../../infrastructure/tenant/tenant-database.manager';
+import { TenantLedgerService, cashAccountFor } from './tenant-ledger.service';
 
 /** Allowed status transitions (linear pipeline + LOST from any open stage). */
 const LEAD_TRANSITIONS: Record<CrmLeadStatus, CrmLeadStatus[]> = {
@@ -53,7 +54,10 @@ export interface ConvertLeadInput {
  */
 @Injectable()
 export class TenantCrmService {
-  constructor(private readonly tenantDbManager: TenantDatabaseManager) {}
+  constructor(
+    private readonly tenantDbManager: TenantDatabaseManager,
+    private readonly ledger: TenantLedgerService,
+  ) {}
 
   async createLead(organizationId: string, input: CreateLeadInput) {
     const db = await this.tenantDbManager.getTenantDatabase(organizationId);
@@ -326,6 +330,14 @@ export class TenantCrmService {
         recordedBy: input.recordedBy,
       },
     });
+
+    // § Gate 5 ledger: broker commission paid out
+    await this.ledger
+      .postGroup(organizationId, `payout:${payoutId}`, [
+        { account: 'COMMISSION_EXPENSE', debit: payout.amount, memo: `Broker payout ${input.reference ?? ''}`.trim() },
+        { account: cashAccountFor(input.method), credit: payout.amount, memo: 'Commission settled' },
+      ], { refType: 'CommissionPayout', refId: payoutId })
+      .catch(() => {});
 
     await db.tenantAuditEvent.create({
       data: {

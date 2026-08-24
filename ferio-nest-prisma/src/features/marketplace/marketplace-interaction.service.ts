@@ -95,7 +95,7 @@ export class MarketplaceInteractionService {
     });
 
     // § Week 30 attribution — best-effort, never blocks the inquiry.
-    void this.attributeToOrganizationCrm(listing, input).catch((err: any) => {
+    void this.attributeToOrganizationCrm(listing.id, listing, input).catch((err: any) => {
       this.logger.warn(
         `CRM attribution skipped for inquiry ${inquiry.id}: ${err?.message ?? err}`,
       );
@@ -109,6 +109,7 @@ export class MarketplaceInteractionService {
    * projected from a managed unit (sourceOrganizationId + sourceUnitId).
    */
   private async attributeToOrganizationCrm(
+    listingId: string,
     listing: { sourceOrganizationId: string | null; sourceUnitId: string | null },
     input: CreateInquiryInput,
   ): Promise<void> {
@@ -149,6 +150,7 @@ export class MarketplaceInteractionService {
         email: sender?.email ?? undefined,
         source: 'MARKETPLACE_INQUIRY',
         interestedUnitId: localUnit.id,
+        listingId,
         notes: input.message,
       },
     });

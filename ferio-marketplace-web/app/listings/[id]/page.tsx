@@ -14,6 +14,7 @@ import {
   Layers,
   FileText,
   BadgeCheck,
+  Star,
 } from 'lucide-react';
 import { getListing, ensureMyAccount, createInquiry, type ListingDetail } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -180,6 +181,21 @@ export default function ListingDetailPage() {
                     Negotiable
                   </span>
                 )}
+                {(listing.promotionBadges ?? []).includes('FEATURED') && (
+                  <span className="flex items-center gap-1 rounded-full bg-[#111114] px-2.5 py-0.5 text-[11px] font-semibold text-white">
+                    <Star className="h-3 w-3" /> Featured
+                  </span>
+                )}
+                {(listing.promotionBadges ?? []).includes('TOP_SEARCH') && (
+                  <span className="flex items-center gap-1 rounded-full bg-[#111114] px-2.5 py-0.5 text-[11px] font-semibold text-white">
+                    <Star className="h-3 w-3" /> Spotlight
+                  </span>
+                )}
+                {(listing.promotionBadges ?? []).includes('URGENT') && (
+                  <span className="rounded-full bg-[#fef3c7] px-2.5 py-0.5 text-[11px] font-semibold text-[#92400e]">
+                    Urgent
+                  </span>
+                )}
                 <span className="text-[11px] uppercase tracking-[0.12em] text-[#6e6e73]">
                   {listing.assetType.replaceAll('_', ' ').toLowerCase()}
                 </span>
@@ -219,6 +235,68 @@ export default function ListingDetailPage() {
                 <p className="whitespace-pre-line text-sm leading-relaxed text-[#111114]">
                   {listing.description}
                 </p>
+              </section>
+            )}
+
+            {/* §24 Room-by-room breakdown */}
+            {(listing.rooms ?? []).length > 0 && (
+              <section>
+                <h2 className="eyebrow-label mb-3">Room by room</h2>
+                <ul className="divide-y divide-[#e8e8ea]">
+                  {listing.rooms.map((room) => {
+                    const sqft =
+                      room.lengthFt != null && room.widthFt != null
+                        ? Math.round(room.lengthFt * room.widthFt * 100) / 100
+                        : null;
+                    return (
+                      <li key={room.id} className="flex gap-4 py-4">
+                        {room.media.length > 0 ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={room.media[0].url}
+                            alt={room.name}
+                            className="h-20 w-28 shrink-0 rounded-[10px] object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-20 w-28 shrink-0 items-center justify-center rounded-[10px] bg-[#fafafa] text-[10px] text-[#6e6e73]">
+                            No photo
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-baseline gap-x-3">
+                            <p className="text-sm font-medium">{room.name}</p>
+                            <span className="text-[11px] uppercase tracking-[0.12em] text-[#6e6e73]">
+                              {room.type.replaceAll('_', ' ').toLowerCase()}
+                            </span>
+                            {sqft !== null && (
+                              <span className="ml-auto whitespace-nowrap text-xs tabular-nums text-[#111114]">
+                                {room.lengthFt}&prime; &times; {room.widthFt}&prime; · {sqft.toLocaleString()} sq ft
+                              </span>
+                            )}
+                          </div>
+                          {room.description && (
+                            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-[#6e6e73]">
+                              {room.description}
+                            </p>
+                          )}
+                          {room.media.length > 1 && (
+                            <div className="mt-2 flex gap-2">
+                              {room.media.slice(1, 5).map((mm) => (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  key={mm.id}
+                                  src={mm.url}
+                                  alt={mm.caption ?? ''}
+                                  className="h-12 w-16 rounded-md object-cover"
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
               </section>
             )}
 

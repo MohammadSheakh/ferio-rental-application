@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { TenantDatabaseManager } from '../../infrastructure/tenant/tenant-database.manager';
 import { EntitlementService } from '../../infrastructure/entitlements/entitlement.service';
-import { PropertyType, UnitType, UnitStatus } from '@prisma/tenant-client';
+import { PropertyType, UnitType, UnitStatus, RoomType } from '@prisma/tenant-client';
 
 export interface CreatePropertyInput {
   name: string;
@@ -378,5 +378,137 @@ export class TenantPropertyService {
       unallocatedPercent: Math.round((100 - allocated) * 100) / 100,
       historyCount: history.length,
     };
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // §24 Rich Unit Detail — room-by-room breakdown
+  // ────────────────────────────────────────────────────────────
+
+  async addUnitRoom(
+    organizationId: string,
+    unitId: string,
+    input: {
+      name: string;
+      type?: RoomType;
+      lengthFt?: number;
+      widthFt?: number;
+      description?: string;
+      sortOrder?: number;
+      media?: Array<{ url: string; caption?: string }>;
+    },
+  ) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+
+    const unit = await db.unit.findUnique({ where: { id: unitId }, select: { id: true } });
+    if (!unit) throw new NotFoundException('Unit not found');
+
+    return db.unitRoom.create({
+      data: {
+        unitId,
+        name: input.name,
+        type: input.type ?? 'OTHER',
+        lengthFt: input.lengthFt,
+        widthFt: input.widthFt,
+        description: input.description,
+        sortOrder: input.sortOrder ?? 0,
+        media: input.media?.length
+          ? {
+              create: input.media.map((m, i) => ({
+                url: m.url,
+                caption: m.caption ?? null,
+                sortOrder: i,
+              })),
+            }
+          : undefined,
+      },
+      include: { media: { orderBy: { sortOrder: 'asc' } } },
+    });
+  }
+
+  /** Rooms of a unit with per-room media and computed square footage. */
+  async listUnitRooms(organizationId: string, unitId: string) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+
+    const rooms = await db.unitRoom.findMany({
+      where: { unitId },
+      orderBy: { sortOrder: 'asc' },
+      include: { media: { orderBy: { sortOrder: 'asc' } } },
+    });
+
+    return rooms.map((r) => ({
+      ...r,
+      areaSqFt:
+        r.lengthFt != null && r.widthFt != null
+          ? Math.round(r.lengthFt * r.widthFt * 100) / 100
+          : null,
+    }));
+  }
+
+  async updateUnitRoom(
+    organizationId: string,
+    roomId: string,
+    input: {
+      name?: string;
+      type?: RoomType;
+      lengthFt?: number;
+      widthFt?: number;
+      description?: string;
+      sortOrder?: number;
+    },
+  ) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    await this.assertRoomExists(db, roomId);
+    return db.unitRoom.update({
+      where: { id: roomId },
+      data: {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.type !== undefined ? { type: input.type } : {}),
+        ...(input.lengthFt !== undefined ? { lengthFt: input.lengthFt } : {}),
+        ...(input.widthFt !== undefined ? { widthFt: input.widthFt } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+      },
+      include: { media: { orderBy: { sortOrder: 'asc' } } },
+    });
+  }
+
+  async deleteUnitRoom(organizationId: string, roomId: string) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    await this.assertRoomExists(db, roomId);
+    await db.unitRoom.delete({ where: { id: roomId } });
+    return { deleted: true };
+  }
+
+  async addUnitRoomMedia(
+    organizationId: string,
+    roomId: string,
+    input: { url: string; caption?: string; sortOrder?: number },
+  ) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    await this.assertRoomExists(db, roomId);
+    return db.unitRoomMedia.create({
+      data: {
+        roomId,
+        url: input.url,
+        caption: input.caption ?? null,
+        sortOrder: input.sortOrder ?? 0,
+      },
+    });
+  }
+
+  async deleteUnitRoomMedia(organizationId: string, mediaId: string) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    const media = await db.unitRoomMedia.findUnique({ where: { id: mediaId } });
+    if (!media) throw new NotFoundException('Room media not found');
+    await db.unitRoomMedia.delete({ where: { id: mediaId } });
+    return { deleted: true };
+  }
+
+  private async assertRoomExists(db: any, roomId: string) {
+    const room = await db.unitRoom.findUnique({
+      where: { id: roomId },
+      select: { id: true },
+    });
+    if (!room) throw new NotFoundException('Unit room not found');
   }
 }

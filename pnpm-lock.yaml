@@ -94,7 +94,7 @@ importers:
   ferio-nest-prisma:
     dependencies:
       '@aws-sdk/client-s3':
-        specifier: ^3.1050.0
+        specifier: ^3.1116.0
         version: 3.1116.0
       '@nestjs/bullmq':
         specifier: ^11.0.4
@@ -159,6 +159,9 @@ importers:
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
+      express:
+        specifier: ^5.2.1
+        version: 5.2.1
       firebase-admin:
         specifier: ^13.10.0
         version: 13.10.0

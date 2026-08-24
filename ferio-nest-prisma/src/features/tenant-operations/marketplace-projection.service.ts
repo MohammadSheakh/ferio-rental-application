@@ -80,6 +80,15 @@ export class MarketplaceProjectionService {
       }
 
       const title = `${unit.property.name} — Unit ${unit.name}`;
+
+      // §24: carry the room-by-room breakdown into the projection so the
+      // public listing renders full detail (name/type/ft×ft/photos).
+      const rooms = await tx.unitRoom.findMany({
+        where: { unitId },
+        orderBy: { sortOrder: 'asc' },
+        include: { media: { orderBy: { sortOrder: 'asc' } } },
+      });
+
       const payload = {
         organizationId,
         unitId,
@@ -101,6 +110,15 @@ export class MarketplaceProjectionService {
         district: unit.property.district,
         latitude: unit.property.latitude,
         longitude: unit.property.longitude,
+        rooms: rooms.map((r) => ({
+          name: r.name,
+          type: r.type as string,
+          lengthFt: r.lengthFt,
+          widthFt: r.widthFt,
+          description: r.description,
+          sortOrder: r.sortOrder,
+          media: r.media.map((m) => ({ url: m.url, caption: m.caption ?? undefined })),
+        })),
       };
 
       // Domain state change + event in ONE tenant-DB transaction.
@@ -160,6 +178,10 @@ export class MarketplaceProjectionService {
               longitude: true,
             },
           },
+          rooms: {
+            orderBy: { sortOrder: 'asc' },
+            include: { media: { orderBy: { sortOrder: 'asc' } } },
+          },
         },
       });
       if (!full)
@@ -187,6 +209,15 @@ export class MarketplaceProjectionService {
           district: full.property.district,
           latitude: full.property.latitude,
           longitude: full.property.longitude,
+          rooms: full.rooms.map((r) => ({
+            name: r.name,
+            type: r.type as string,
+            lengthFt: r.lengthFt,
+            widthFt: r.widthFt,
+            description: r.description,
+            sortOrder: r.sortOrder,
+            media: r.media.map((m) => ({ url: m.url, caption: m.caption ?? undefined })),
+          })),
         },
       );
 

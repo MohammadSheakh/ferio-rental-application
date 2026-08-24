@@ -57,6 +57,63 @@ export class TenantReportingService {
   /**
    * Rent Collection & Financial Performance Report
    */
+  /**
+   * § Weeks 34–35 renter payment behavior — days-to-pay vs due date and
+   * on-time percentage per renter, over verified payments only.
+   */
+  async getPaymentBehaviorReport(organizationId: string) {
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+
+    const payments = await db.payment.findMany({
+      where: { status: { in: ['VERIFIED', 'SETTLED'] } },
+      select: {
+        amount: true,
+        paidAt: true,
+        invoice: {
+          select: {
+            dueDate: true,
+            billingAccount: { select: { unit: { select: { id: true, name: true } } } },
+          },
+        },
+      },
+      take: 2000,
+    });
+
+    const leases = await db.lease.findMany({
+      where: { status: { in: ['ACTIVE', 'NOTICE_GIVEN'] } },
+      select: { id: true, unitId: true, renter: { select: { name: true, phone: true } } },
+    });
+    const unitToRenter = new Map(leases.map((l) => [l.unitId, l.renter]));
+
+    type Row = { renter: string; payments: number; totalBdt: number; totalDays: number; onTime: number };
+    const byRenter = new Map<string, Row>();
+    for (const p of payments) {
+      if (!p.paidAt) continue;
+      const renter =
+        unitToRenter.get((p.invoice as any)?.billingAccount?.unit?.id ?? '')?.name ??
+        (p.invoice as any)?.billingAccount?.unit?.name ??
+        'unknown';
+      const row = byRenter.get(renter) ?? { renter, payments: 0, totalBdt: 0, totalDays: 0, onTime: 0 };
+      const days = Math.round(
+        (p.paidAt.getTime() - new Date(p.invoice.dueDate).getTime()) / 86_400_000,
+      );
+      row.payments += 1;
+      row.totalBdt += p.amount;
+      row.totalDays += days;
+      if (days <= 0) row.onTime += 1;
+      byRenter.set(renter, row);
+    }
+
+    const rows = [...byRenter.values()].map((r) => ({
+      renter: r.renter,
+      payments: r.payments,
+      totalPaidBdt: Math.round(r.totalBdt * 100) / 100,
+      avgDaysToPay: r.payments ? Math.round(r.totalDays / r.payments) : null,
+      onTimePercent: r.payments ? Number(((r.onTime / r.payments) * 100).toFixed(1)) : null,
+    }));
+    return rows.sort((a, b) => b.totalPaidBdt - a.totalPaidBdt);
+  }
+
   async getFinancialReport(organizationId: string) {
     const db = await this.tenantDbManager.getTenantDatabase(organizationId);
 

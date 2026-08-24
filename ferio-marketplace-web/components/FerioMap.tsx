@@ -9,8 +9,9 @@ import type { MapMarker } from '@/lib/api';
 /**
  * Solid-black price chip marker — product-card chip style (§6):
  * no color, no shadow; the price is the information.
+ * §23: promoted listings carry a ★ prefix (still grayscale).
  */
-function priceIcon(price: number): L.DivIcon {
+function priceIcon(price: number, promoted?: boolean): L.DivIcon {
   const label =
     price >= 10_000_000
       ? `৳${(price / 10_000_000).toFixed(1)}Cr`
@@ -19,9 +20,9 @@ function priceIcon(price: number): L.DivIcon {
         : `৳${Math.round(price / 1000)}k`;
   return L.divIcon({
     className: 'ferio-price-chip',
-    html: `<span>${label}</span>`,
-    iconSize: [64, 24],
-    iconAnchor: [32, 12],
+    html: `<span>${promoted ? '★ ' : ''}${label}</span>`,
+    iconSize: promoted ? [74, 24] : [64, 24],
+    iconAnchor: promoted ? [37, 12] : [32, 12],
   });
 }
 
@@ -82,7 +83,7 @@ export default function FerioMap({ center, zoom = 12, markers, onBoundsChange }:
         <Marker
           key={m.id}
           position={[m.latitude, m.longitude]}
-          icon={priceIcon(m.price)}
+          icon={priceIcon(m.price, (m.promotionBadges?.length ?? 0) > 0)}
           title={m.title}
         />
       ))}

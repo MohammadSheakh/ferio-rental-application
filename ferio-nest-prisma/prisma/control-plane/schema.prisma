@@ -76,6 +76,15 @@ enum CredentialProvider {
   GOOGLE
 }
 
+/// § Week 27 Platform Billing — Organization → Ferio money flow.
+/// Kept strictly separate from rental billing (tenant DBs) and from
+/// §23 promotion revenue (marketplace DB).
+enum PlatformInvoiceStatus {
+  DUE
+  PAID
+  VOID
+}
+
 // ──────────────────────────────────────────────────────────────
 // MODELS
 // ──────────────────────────────────────────────────────────────
@@ -145,6 +154,9 @@ model SaasOrganization {
   database      TenantDatabase?
   subscription  Subscription?
   provisioningJobs ProvisioningJob[]
+  platformInvoices PlatformInvoice[]
+  apiClients ApiClient[]
+  backups TenantBackup[]
   auditEvents   PlatformAuditEvent[]
 
   @@index([slug])
@@ -274,6 +286,7 @@ model Subscription {
   organization SaasOrganization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   plan         Plan             @relation(fields: [planId], references: [id])
   events       SubscriptionEvent[]
+  invoices     PlatformInvoice[]
 
   @@index([organizationId])
   @@index([status])
@@ -372,4 +385,93 @@ model PlatformAuditEvent {
   @@index([action])
   @@index([resourceType, resourceId])
   @@index([createdAt])
+}
+
+/// § Week 27 — one platform invoice per subscription per billing period.
+model PlatformInvoice {
+  id             String                @id @default(cuid())
+  organizationId String
+  subscriptionId String
+  periodStart    DateTime
+  periodEnd      DateTime
+  /// Unique per subscription per period → generation is idempotent.
+  periodKey      String
+  amountBdt      Float
+  status         PlatformInvoiceStatus @default(DUE)
+  dueDate        DateTime
+
+  paidAt   DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization SaasOrganization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription Subscription      @relation(fields: [subscriptionId], references: [id])
+  payments     PlatformPayment[]
+
+  @@unique([subscriptionId, periodKey])
+  @@index([organizationId, status])
+}
+
+/// § Week 27 — manually-confirmed MFS/bank payments against a platform invoice.
+model PlatformPayment {
+  id         String   @id @default(cuid())
+  invoiceId  String
+  amountBdt  Float
+  method     String   /// BKASH | NAGAD | BANK
+  reference  String?
+  recordedBy String?  /// Platform staff who confirmed the off-platform payment
+  paidAt     DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  invoice PlatformInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+/// § Week 33 External API — machine credentials for an organization.
+/// The full key (fk_live_<prefix>_<secret>) is returned exactly once at
+/// creation; only the sha256 hash is stored.
+model ApiClient {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  keyPrefix      String    /// e.g. "a1b2c3d4" — stored in cleartext for lookup
+  keyHash        String    @unique /// sha256 of the full key
+  scopes         String[]  @default([]) /// units:read, invoices:read, leases:read, maintenance:read
+  status         String    @default("ACTIVE") /// ACTIVE | REVOKED
+  lastUsedAt     DateTime?
+  createdBy      String?   /// Platform staff who issued the key
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization SaasOrganization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+/// § Week 36 Tenant DB operations — physical backups taken with pg_dump
+/// (custom format) and stored through the StorageService (S3/local).
+model TenantBackup {
+  id             String   @id @default(cuid())
+  organizationId String
+  databaseName   String
+  storageKey     String
+  sizeBytes      BigInt
+  tableCount     Int      @default(0)
+  type           String   @default("MANUAL") /// MANUAL | PRE_MIGRATION | SCHEDULED
+  status         String   @default("COMPLETED") /// COMPLETED | FAILED
+  format         String   @default("CUSTOM")
+  note           String?
+  createdBy      String?
+
+  verifiedAt     DateTime?
+  restoredToDbName String?
+
+  createdAt DateTime @default(now())
+
+  organization SaasOrganization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }

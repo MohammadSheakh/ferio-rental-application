@@ -11,6 +11,8 @@ import {
   UpdateListingDto,
   AddListingMediaDto,
   AddListingDocumentDto,
+  AddListingRoomDto,
+  UpdateListingRoomDto,
   SearchListingsDto,
   MapSearchDto,
 } from './dto/marketplace-listing.dto';
@@ -32,6 +34,8 @@ interface GeoSearchRow {
   verificationBadge: string | null;
   sellerDisplayName: string | null;
   sellerAccountType: string | null;
+  promotionTier: number;
+  promotionBadges: string[];
   createdAt: Date;
   distanceKm: number | null;
 }
@@ -56,12 +60,19 @@ export class MarketplaceListingService {
       throw new NotFoundException('Marketplace seller account not found');
     }
 
+    // AccountType INDIVIDUAL has no SellerType equivalent — fall back to
+    // OWNER so any registered advertiser can post without a 500.
+    const SELLER_TYPES = ['OWNER', 'BROKER', 'AGENCY', 'DEVELOPER'];
+    const inferredSellerType = SELLER_TYPES.includes(account.accountType)
+      ? account.accountType
+      : 'OWNER';
+
     return this.marketplacePrisma.propertyListing.create({
       data: {
         sellerId: account.id,
         purpose: dto.purpose,
         assetType: dto.assetType,
-        sellerType: dto.sellerType || (account.accountType as any),
+        sellerType: dto.sellerType || (inferredSellerType as any),
         title: dto.title,
         description: dto.description,
         price: dto.price,
@@ -196,6 +207,11 @@ export class MarketplaceListingService {
         },
         media: { orderBy: { order: 'asc' } },
         documents: true,
+        // §24 room-by-room breakdown with per-room photos
+        rooms: {
+          orderBy: { sortOrder: 'asc' },
+          include: { media: { orderBy: { sortOrder: 'asc' } } },
+        },
       },
     });
 
@@ -292,6 +308,129 @@ export class MarketplaceListingService {
     });
   }
 
+  // ────────────────────────────────────────────────────────────
+  // §24 Room-by-room detail — free-advertiser listings
+  // (managed units project their tenant-side UnitRooms instead)
+  // ────────────────────────────────────────────────────────────
+
+  async addRoom(
+    listingId: string,
+    sellerAccountId: string,
+    dto: AddListingRoomDto & { media?: Array<{ url: string; caption?: string }> },
+  ) {
+    const listing = await this.getListingById(listingId);
+    if (listing.sellerId !== sellerAccountId) {
+      throw new ForbiddenException('You do not own this listing');
+    }
+    return this.marketplacePrisma.listingRoom.create({
+      data: {
+        listingId,
+        name: dto.name,
+        type: dto.type ?? 'OTHER',
+        lengthFt: dto.lengthFt,
+        widthFt: dto.widthFt,
+        description: dto.description,
+        sortOrder: dto.sortOrder ?? 0,
+        media: dto.media?.length
+          ? {
+              create: dto.media.map((m, i) => ({
+                url: m.url,
+                caption: m.caption ?? null,
+                sortOrder: i,
+              })),
+            }
+          : undefined,
+      },
+      include: { media: { orderBy: { sortOrder: 'asc' } } },
+    });
+  }
+
+  async updateRoom(
+    listingId: string,
+    sellerAccountId: string,
+    roomId: string,
+    dto: UpdateListingRoomDto,
+  ) {
+    await this.assertOwnsListingRoom(listingId, sellerAccountId, roomId);
+    return this.marketplacePrisma.listingRoom.update({
+      where: { id: roomId },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.type !== undefined ? { type: dto.type } : {}),
+        ...(dto.lengthFt !== undefined ? { lengthFt: dto.lengthFt } : {}),
+        ...(dto.widthFt !== undefined ? { widthFt: dto.widthFt } : {}),
+        ...(dto.description !== undefined ? { description: dto.description } : {}),
+        ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+      },
+      include: { media: { orderBy: { sortOrder: 'asc' } } },
+    });
+  }
+
+  async deleteRoom(listingId: string, sellerAccountId: string, roomId: string) {
+    await this.assertOwnsListingRoom(listingId, sellerAccountId, roomId);
+    await this.marketplacePrisma.listingRoom.delete({ where: { id: roomId } });
+    return { deleted: true };
+  }
+
+  async addRoomMedia(
+    listingId: string,
+    sellerAccountId: string,
+    roomId: string,
+    dto: { url: string; caption?: string; sortOrder?: number },
+  ) {
+    await this.assertOwnsListingRoom(listingId, sellerAccountId, roomId);
+    return this.marketplacePrisma.listingRoomMedia.create({
+      data: {
+        roomId,
+        url: dto.url,
+        caption: dto.caption ?? null,
+        sortOrder: dto.sortOrder ?? 0,
+      },
+    });
+  }
+
+  async deleteRoomMedia(
+    listingId: string,
+    sellerAccountId: string,
+    mediaId: string,
+  ) {
+    const media = await this.marketplacePrisma.listingRoomMedia.findUnique({
+      where: { id: mediaId },
+      include: { room: { select: { listingId: true } } },
+    });
+    if (!media || media.room.listingId !== listingId) {
+      throw new NotFoundException('Room media not found');
+    }
+    await this.getListingById(listingId).then((l) => {
+      if (l.sellerId !== sellerAccountId) {
+        throw new ForbiddenException('You do not own this listing');
+      }
+    });
+    await this.marketplacePrisma.listingRoomMedia.delete({ where: { id: mediaId } });
+    return { deleted: true };
+  }
+
+  private async assertOwnsListingRoom(
+    listingId: string,
+    sellerAccountId: string,
+    roomId: string,
+  ) {
+    const room = await this.marketplacePrisma.listingRoom.findUnique({
+      where: { id: roomId },
+      select: { id: true, listingId: true },
+    });
+    if (!room || room.listingId !== listingId) {
+      throw new NotFoundException('Room not found on this listing');
+    }
+    const listing = await this.marketplacePrisma.propertyListing.findUnique({
+      where: { id: listingId },
+      select: { sellerId: true },
+    });
+    if (!listing || listing.sellerId !== sellerAccountId) {
+      throw new ForbiddenException('You do not own this listing');
+    }
+  }
+
   /**
    * Search public listings.
    *
@@ -309,9 +448,32 @@ export class MarketplaceListingService {
         dto.maxLng !== undefined);
 
     if (hasGeo || dto.sortBy === 'nearest') {
-      return this.geoSearch(dto);
+      const res = await this.geoSearch(dto);
+      void this.recordSearch('SEARCH', dto, res.meta.total);
+      return res;
     }
-    return this.plainSearch(dto);
+    const res = await this.plainSearch(dto);
+    void this.recordSearch('SEARCH', dto, res.meta.total);
+    return res;
+  }
+
+  /** § Weeks 34–35 demand analytics — best-effort capture, never blocks. */
+  private async recordSearch(
+    kind: 'SEARCH' | 'MAP',
+    dto: Partial<SearchListingsDto & MapSearchDto>,
+    resultCount: number,
+  ) {
+    this.marketplacePrisma.searchEvent
+      .create({
+        data: {
+          kind,
+          purpose: dto.purpose ?? null,
+          assetType: dto.assetType ?? null,
+          area: dto.area ?? null,
+          resultCount,
+        },
+      })
+      .catch(() => {});
   }
 
   private async plainSearch(dto: SearchListingsDto) {
@@ -336,12 +498,15 @@ export class MarketplaceListingService {
       if (dto.maxPrice !== undefined) where.price.lte = dto.maxPrice;
     }
 
-    const orderBy: Prisma.PropertyListingOrderByWithRelationInput =
+    // §23: promoted listings rank first inside the chosen sort bucket.
+    const orderBy: Prisma.PropertyListingOrderByWithRelationInput[] = [
+      { promotionTier: 'desc' },
       dto.sortBy === 'price_asc'
         ? { price: 'asc' }
         : dto.sortBy === 'price_desc'
           ? { price: 'desc' }
-          : { createdAt: 'desc' };
+          : { createdAt: 'desc' },
+    ];
 
     const [items, total] = await Promise.all([
       this.marketplacePrisma.propertyListing.findMany({
@@ -465,12 +630,12 @@ export class MarketplaceListingService {
 
     const orderBySql =
       dto.sortBy === 'nearest' && dto.lat !== undefined && dto.lng !== undefined
-        ? Prisma.sql`ORDER BY "location" <-> ST_SetSRID(ST_MakePoint(${dto.lng}, ${dto.lat}), 4326)`
+        ? Prisma.sql`ORDER BY l."promotionTier" DESC, "location" <-> ST_SetSRID(ST_MakePoint(${dto.lng}, ${dto.lat}), 4326)`
         : dto.sortBy === 'price_asc'
-          ? Prisma.sql`ORDER BY "price" ASC`
+          ? Prisma.sql`ORDER BY l."promotionTier" DESC, l."price" ASC`
           : dto.sortBy === 'price_desc'
-            ? Prisma.sql`ORDER BY "price" DESC`
-            : Prisma.sql`ORDER BY "createdAt" DESC`;
+            ? Prisma.sql`ORDER BY l."promotionTier" DESC, l."price" DESC`
+            : Prisma.sql`ORDER BY l."promotionTier" DESC, l."createdAt" DESC`;
 
     const baseSelect = Prisma.sql`
       SELECT l."id", l."title", l."price", l."purpose", l."assetType",
@@ -478,7 +643,7 @@ export class MarketplaceListingService {
              cover.url AS "coverImageUrl",
              a."isIdentityVerified", a."verificationBadge",
              a."displayName" AS "sellerDisplayName", a."accountType" AS "sellerAccountType",
-             l."createdAt"${distanceSelect}
+             l."promotionTier", l."promotionBadges", l."createdAt"${distanceSelect}
       FROM "PropertyListing" l
       LEFT JOIN "ListingMedia" cover ON cover."listingId" = l."id" AND cover."isCover" = true
       JOIN "MarketplaceAccount" a ON a."id" = l."sellerId"
@@ -530,15 +695,20 @@ export class MarketplaceListingService {
         purpose: string;
         latitude: number;
         longitude: number;
+        promotionTier: number;
+        promotionBadges: string[];
       }>
     >(Prisma.sql`
       SELECT l."id", l."title", l."price", l."purpose",
-             l."latitude", l."longitude"
+             l."latitude", l."longitude",
+             l."promotionTier", l."promotionBadges"
       FROM "PropertyListing" l
       WHERE ${Prisma.join(conditions, ' AND ')}
-      ORDER BY l."createdAt" DESC
+      ORDER BY l."promotionTier" DESC, l."createdAt" DESC
       LIMIT ${limit}
     `);
+
+    void this.recordSearch('MAP', dto, rows.length);
 
     return {
       markers: rows,
@@ -569,6 +739,8 @@ export class MarketplaceListingService {
       district: r.district,
       coverImageUrl: r.coverImageUrl,
       distanceKm: r.distanceKm !== null ? Number(r.distanceKm) : null,
+      promotionTier: r.promotionTier,
+      promotionBadges: r.promotionBadges ?? [],
       seller: {
         displayName: r.sellerDisplayName,
         accountType: r.sellerAccountType,
@@ -576,6 +748,59 @@ export class MarketplaceListingService {
         verificationBadge: r.verificationBadge,
       },
       createdAt: r.createdAt,
+    };
+  }
+
+  /**
+   * §23 Homepage spotlight: listings with a live TOP_SEARCH promotion.
+   * Powers the hero/spotlight slot on ferio.com.
+   */
+  async spotlight(limit = 8) {
+    const now = new Date();
+    const take = Math.min(Math.max(limit, 1), 24);
+    const promos = await this.marketplacePrisma.listingPromotion.findMany({
+      where: {
+        type: 'TOP_SEARCH',
+        status: 'ACTIVE',
+        startsAt: { lte: now },
+        expiresAt: { gt: now },
+      },
+      orderBy: { startsAt: 'desc' },
+      take,
+      include: {
+        listing: {
+          include: {
+            media: { where: { isCover: true }, take: 1 },
+            seller: {
+              select: {
+                displayName: true,
+                isIdentityVerified: true,
+                verificationBadge: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return {
+      items: promos
+        .filter((p) => p.listing.status === ListingStatus.ACTIVE)
+        .map((p) => ({
+          id: p.listing.id,
+          title: p.listing.title,
+          price: p.listing.price,
+          purpose: p.listing.purpose,
+          assetType: p.listing.assetType,
+          area: p.listing.area,
+          district: p.listing.district,
+          bedrooms: p.listing.bedrooms,
+          bathrooms: p.listing.bathrooms,
+          coverImageUrl: p.listing.media[0]?.url ?? null,
+          promotedUntil: p.expiresAt,
+          promotionBadges: p.listing.promotionBadges,
+          seller: p.listing.seller,
+        })),
     };
   }
 

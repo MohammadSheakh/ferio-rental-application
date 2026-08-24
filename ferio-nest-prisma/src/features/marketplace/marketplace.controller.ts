@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -13,6 +14,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { MarketplaceAccountService } from './marketplace-account.service';
 import { MarketplaceListingService } from './marketplace-listing.service';
 import { MarketplaceInteractionService } from './marketplace-interaction.service';
@@ -21,6 +23,8 @@ import {
   UpdateListingDto,
   AddListingMediaDto,
   AddListingDocumentDto,
+  AddListingRoomDto,
+  UpdateListingRoomDto,
   SearchListingsDto,
   MapSearchDto,
 } from './dto/marketplace-listing.dto';
@@ -89,6 +93,14 @@ export class MarketplaceController {
   })
   async searchListings(@Query() query: SearchListingsDto) {
     return this.listingService.searchListings(query);
+  }
+
+  @Get('listings/spotlight')
+  @ApiOperation({
+    summary: '§23 homepage spotlight — listings with a live TOP_SEARCH promotion',
+  })
+  async spotlight(@Query('limit') limit?: string) {
+    return this.listingService.spotlight(limit ? parseInt(limit, 10) : undefined);
   }
 
   @Get('listings/map')
@@ -174,6 +186,64 @@ export class MarketplaceController {
   }
 
   // ────────────────────────────────────────────────────────────
+  // §24 Room-by-room detail (seller-managed listings)
+  // ────────────────────────────────────────────────────────────
+
+  @Post('accounts/:accountId/listings/:listingId/rooms')
+  @ApiOperation({ summary: 'Add a room (name/type/feet dimensions/photos) to my listing' })
+  async addRoom(
+    @Param('accountId') accountId: string,
+    @Param('listingId') listingId: string,
+    @Body() dto: AddListingRoomDto,
+  ) {
+    return this.listingService.addRoom(listingId, accountId, dto);
+  }
+
+  @Patch('accounts/:accountId/listings/:listingId/rooms/:roomId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Edit a room on my listing' })
+  async updateRoom(
+    @Param('accountId') accountId: string,
+    @Param('listingId') listingId: string,
+    @Param('roomId') roomId: string,
+    @Body() dto: UpdateListingRoomDto,
+  ) {
+    return this.listingService.updateRoom(listingId, accountId, roomId, dto);
+  }
+
+  @Delete('accounts/:accountId/listings/:listingId/rooms/:roomId')
+  @ApiOperation({ summary: 'Remove a room from my listing' })
+  async deleteRoom(
+    @Param('accountId') accountId: string,
+    @Param('listingId') listingId: string,
+    @Param('roomId') roomId: string,
+  ) {
+    return this.listingService.deleteRoom(listingId, accountId, roomId);
+  }
+
+  @Post('accounts/:accountId/listings/:listingId/rooms/:roomId/media')
+  @ApiOperation({ summary: 'Register a photo against a specific room' })
+  async addRoomMedia(
+    @Param('accountId') accountId: string,
+    @Param('listingId') listingId: string,
+    @Param('roomId') roomId: string,
+    @Body() body: { url: string; caption?: string; sortOrder?: number },
+  ) {
+    if (!body?.url) throw new BadRequestException('url is required');
+    return this.listingService.addRoomMedia(listingId, accountId, roomId, body);
+  }
+
+  @Delete('accounts/:accountId/listings/:listingId/room-media/:mediaId')
+  @ApiOperation({ summary: 'Remove a room photo registration' })
+  async deleteRoomMedia(
+    @Param('accountId') accountId: string,
+    @Param('listingId') listingId: string,
+    @Param('mediaId') mediaId: string,
+  ) {
+    return this.listingService.deleteRoomMedia(listingId, accountId, mediaId);
+  }
+
+  // ────────────────────────────────────────────────────────────
   // Interactions (Favorites, Inquiries, Viewing Requests)
   // ────────────────────────────────────────────────────────────
 
@@ -194,7 +264,9 @@ export class MarketplaceController {
   }
 
   @Post('listings/:listingId/inquiries')
-  @ApiOperation({ summary: 'Send inquiry message to listing owner' })
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: Number(process.env.INQUIRY_RATE_LIMIT || 30), ttl: 3_600_000 } })
+  @ApiOperation({ summary: 'Send inquiry message to listing owner (rate limited, default 30/hour)' })
   async createInquiry(
     @Param('listingId') listingId: string,
     @Body()
@@ -219,7 +291,9 @@ export class MarketplaceController {
   }
 
   @Post('listings/:listingId/viewing-requests')
-  @ApiOperation({ summary: 'Schedule a property viewing appointment' })
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 3_600_000 } })
+  @ApiOperation({ summary: 'Schedule a property viewing appointment (rate limited: 10/hour)' })
   async createViewingRequest(
     @Param('listingId') listingId: string,
     @Body()
@@ -245,7 +319,9 @@ export class MarketplaceController {
   }
 
   @Post('listings/:listingId/report')
-  @ApiOperation({ summary: 'Report inappropriate listing' })
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 3_600_000 } })
+  @ApiOperation({ summary: 'Report inappropriate listing (rate limited: 5/hour)' })
   async reportListing(
     @Param('listingId') listingId: string,
     @Body()

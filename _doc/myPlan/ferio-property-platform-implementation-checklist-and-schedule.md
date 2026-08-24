@@ -7,7 +7,7 @@
 **Frontend Surfaces:** Public Marketplace, SaaS Tenant App, Platform Admin  
 **Mapping/Search:** OpenStreetMap + geospatial search  
 **Target Market:** Bangladesh-first  
-**Version:** 2.1 Audited Baseline (code-verified against `ferio-nest-prisma`)
+**Version:** 2.2 (v2.1 audited baseline + §23 Paid Promotions & §24 Rich Unit Detail additions)
 
 ---
 
@@ -351,7 +351,7 @@ Checklist:
 
 - [x] host normalization
 - [x] local dev host override
-- [ ] custom-domain placeholder
+- [x] custom-domain placeholder *(full W26 flow supersedes — verified hosts resolve pre-subdomain rules)*
 - [x] unknown tenant handling
 - [x] suspended tenant handling
 - [x] Redis/in-memory tenant lookup cache
@@ -427,19 +427,21 @@ Capabilities:
 - [x] failed retry *(re-run safe; FAILED status requires operator action by design)*
 - [x] maintenance mode *(automatic per-tenant during MIGRATING)*
 - [ ] version compatibility *(pre-flight compatibility checks pending)*
-- [ ] pre-migration backup hook
+- [x] pre-migration backup hook *(POST /platform/organizations/:id/backups type=PRE_MIGRATION before fleet rolls — operator-invoked)*
 - [x] post-migration health check
 
 ## 4.8 Release 0 Exit Gate
 
-- [ ] tenant URL resolves correctly
-- [ ] tenant DB provisions automatically
-- [ ] tenant DB migration works
-- [ ] tenant DB seed works
-- [ ] two organizations cannot cross-access
-- [ ] suspended organization is blocked
-- [ ] control DB contains no rental operational data
-- [ ] marketplace DB is independent
+> **v2.2:** all gate items proven live by `test/prog37.verify.ts` against a freshly self-serve-provisioned workspace (§23-style flow).
+
+- [x] tenant URL resolves correctly
+- [x] tenant DB provisions automatically
+- [x] tenant DB migration works
+- [x] tenant DB seed works
+- [x] two organizations cannot cross-access
+- [x] suspended organization is blocked *(resolver cache now invalidated on suspend/activate)*
+- [x] control DB contains no rental operational data *(data-ownership matrix enforced by schema)*
+- [x] marketplace DB is independent
 
 ---
 
@@ -529,8 +531,10 @@ Checklist:
 - [x] listing status *(PENDING_REVIEW flow live — new/edited listings queue when moderation enabled)*
 - [x] listing media *(URL metadata only — no file upload pipeline)*
 - [x] cover image
-- [ ] secure document uploads *(documents are URL registrations; no upload/storage pipeline)*
+- [x] secure document uploads *(§13 pipeline: authenticated multipart upload → S3-compatible storage (local-disk dev driver) → URL registration — prog-28)*
 - [x] sale-document visibility controls *(enforced on read: PUBLIC / VERIFIED_USERS / INTERESTED_BUYERS / PRIVATE / ADMIN_ONLY — viewer-aware detail endpoint)*
+- [x] room-by-room listing detail *(§24 — ListRoom CRUD live for seller-managed listings; tenant units project UnitRooms)*
+- [x] room media on public detail *(room-scoped photo URLs in public detail API; gallery UI pending)*
 
 Listing status:
 
@@ -589,7 +593,7 @@ Checklist:
 - [x] inquiry
 - [x] viewing request
 - [x] owner/broker contact
-- [ ] spam protection placeholder
+- [x] spam protection placeholder *(ThrottlerGuard: inquiries/viewings 10/h, reports 5/h per IP)*
 - [x] abuse report
 - [x] moderation *(PENDING_REVIEW queue + approve/reject/takedown + report triage under `/platform/marketplace`)*
 
@@ -627,7 +631,7 @@ Checklist:
 - [x] cancel
 - [x] past due
 - [x] suspension
-- [ ] provisioning trigger *(admin-triggered only; self-serve subscribe→provision awaits auth architecture)*
+- [x] provisioning trigger *(self-serve `POST /identity/my/organizations` — signed-in advertiser provisions their own workspace + becomes owner; slug-collision 409s without info leak — prog-27)*
 - [x] subscription audit
 
 ## Week 9 — SaaS IAM
@@ -657,7 +661,7 @@ Checklist:
 - [x] property scope *(scopePropertyIds enforced on property/unit reads + single-resource assertions; workspace-wide roles bypass)*
 - [x] building scope *(scopeBuildingIds honoured via unit ownership-of-building match)*
 - [x] unit scope *(scopeUnitIds enforced; union semantics when multiple arrays set)*
-- [ ] delegation
+- [x] delegation *(MemberDelegation: owner grants time-boxed write domains to a member; enforced in both domain guards; expiry/revocation live; audited — prog-35)*
 - [x] expiry
 - [x] audit
 
@@ -739,6 +743,7 @@ Checklist:
 - [x] reconciliation
 - [x] idempotency
 - [ ] audit *(publish actions not yet written to tenant audit log)*
+- [x] projection carries room-by-room detail *(UnitRooms → ListingRooms via outbox snapshot — prog-26)*
 
 ## Week 13 — Renter Conversion & Basic Leasing
 
@@ -850,8 +855,8 @@ Checklist:
 - [x] invoice
 - [x] invoice lines
 - [x] partial payment
-- [ ] ledger readiness *(no `LedgerEntry` model exists)*
-- [x] overdue tracking *(cron scan implemented; not scheduler-registered)*
+- [x] ledger readiness *(double-entry `LedgerEntry`: balanced groups enforced at post time; cash-in vs per-category receivables on verification; compensating reversals; maintenance expense — prog-30)*
+- [x] overdue tracking *(cron scan implemented AND scheduler-registered — prog-36)*
 - [x] receipt generation *(receipt number issued at payment verification)*
 - [x] idempotent invoice generation *(unique per billing account per `periodKey` — regeneration returns existing invoice, E2E-verified)*
 
@@ -873,7 +878,7 @@ Checklist:
 - [x] consolidated renter statement
 - [x] owner receivable view *(per-owner expected vs collected by share %)*
 - [x] management receivable view *(beneficiary split covers this)*
-- [ ] allocation reconciliation
+- [x] allocation reconciliation *(line-totals vs invoice totals cross-check + owner receivable views — prog-25)*
 
 ## Weeks 17–18 — Utilities
 
@@ -931,9 +936,9 @@ Checklist:
 - [x] custom utilities
 - [x] meter photos *(photoUrl field)*
 - [x] reading history
-- [ ] duplicate prevention *(no same-period reading guard)*
-- [ ] rounding correctness *(no allocation math implemented — `generateUtilityBill` stores totals only)*
-- [ ] posting to statement *(utility bills are standalone records, never posted to invoices)*
+- [x] duplicate prevention *(one reading per meter per calendar month; monotonic check — prog-29)*
+- [x] rounding correctness *(allocation engine: EQUAL/AREA/OCCUPANCY/SUBMETER/PERCENTAGE/MANUAL with largest-remainder paisa rounding, Σ==total — prog-29)*
+- [x] posting to statement *(allocated shares post as itemized lines on each unit's open invoice for the period; idempotent; units without statements reported skipped — prog-29)*
 
 ## Week 19 — Rent Payment Recording
 
@@ -1004,30 +1009,34 @@ SHARED
 
 Checklist:
 
-- [ ] issue photos
-- [ ] triage
-- [ ] estimate
-- [ ] payer
-- [ ] approval
-- [ ] crew assignment
-- [ ] work order
-- [ ] before/after evidence
-- [ ] cost
-- [ ] renter confirmation
-- [ ] close/reopen
+> **v2.2 implementation:** complete lifecycle live (prog-33) — guarded state machine (OPEN→TRIAGED→ASSIGNED→SCHEDULED→IN_PROGRESS→WAITING_PARTS→RESOLVED→CONFIRMED→CLOSED + REOPENED), triage w/ estimate (payer/urgency/scope), estimate approval gate blocking assignment until APPROVED, renter confirm/reopen (identity-bound via lease), reopen counter. Ledger posts at completion (prog-30).
+
+- [x] issue photos *(photoUrls[] on MaintenanceRequest; tenant upload endpoint live)*
+- [x] triage *(OPEN → TRIAGED: urgency/payer/scope + estimate recorded, approval PENDING)*
+- [x] estimate *(estimateAmount/note on request; carried onto work orders as estimatedCost)*
+- [x] payer *(MaintenancePayer set at create/triage; drives ledger credit account)*
+- [x] approval *(estimate gate: PENDING blocks assignment; REJECT closes w/ reason)*
+- [x] crew assignment *(work order creation; requires APPROVED estimate when one exists)*
+- [x] work order *(ASSIGNED/SCHEDULED/IN_PROGRESS/WAITING_PARTS/COMPLETED; startedAt sync)*
+- [x] before/after evidence *(beforePhotoUrl / afterPhotoUrl on WorkOrder)*
+- [x] cost *(estimated vs actual; actualCost flows to request + MAINTENANCE_EXPENSE ledger leg)*
+- [x] renter confirmation *(POST /renter/maintenance/:id/confirm — RESOLVED → CONFIRMED)*
+- [x] close/reopen *(renter reject → REOPENED +reopenCount w/ reason; staff CLOSE from allowed states)*
 
 ## Week 22 — Jobs & Notifications
+
+> **v2.2 implementation:** SchedulerService registers the full scan suite in-process (env-tunable intervals, SCHEDULER_DISABLED kill switch, ops triggers retained under /platform/jobs/*): monthly statements (idempotent per periodKey), overdue invoices, lease expiry, listing expiry, promotion expiry, subscription past-due. Statement generation verified E2E + idempotency re-run (prog-36).
 
 Jobs:
 
 ```text
-GenerateMonthlyStatements
-MarkOverdue
-SendRentReminder
-GenerateUtilityCharges
-LeaseExpiryScan
-MaintenanceEscalation
-MarketplaceProjectionReconcile
+GenerateMonthlyStatements   ✅ scheduled hourly (idempotent)
+MarkOverdue                 ✅ scheduled 15m
+SendRentReminder            → via automation/webhook on statement issue
+GenerateUtilityCharges      → manual bill generation + allocation engine
+LeaseExpiryScan             ✅ scheduled 60m
+MaintenanceEscalation       → future
+MarketplaceProjectionReconcile ✅ ops trigger + worker self-heal
 ```
 
 Channels:
@@ -1048,7 +1057,7 @@ Tenant reports:
 - [x] vacancy *(vacancyRatePercent in occupancy report response)*
 - [x] rent due
 - [x] rent collected
-- [ ] owner receivable
+- [x] owner receivable *(per-owner expected vs collected by share % — prog-25)*
 - [x] utility collection
 - [x] service charge
 - [x] maintenance cost
@@ -1058,19 +1067,20 @@ Tenant reports:
 
 Platform reports:
 
-- [ ] organizations
-- [ ] subscriptions
-- [ ] listings
+- [x] organizations
+- [x] subscriptions
+- [x] listings
 - [x] inquiry conversion
-- [ ] active plans
+- [x] active plans
+- *(all inside GET /platform/analytics + /analytics/marketplace + /analytics/growth — prog-24/29/33)*
 
 ## Week 24 — Release 2 Hardening
 
 > **v2.1 audit:** every item below was checked with zero supporting evidence — no tests, no CI, no backup tooling exist in the repository. All reset to unchecked.
 
-- [ ] financial regression
+- [x] financial regression *(trial balance zero-drift through verify/reverse/WO-complete — prog-30)*
 - [ ] multi-beneficiary tests
-- [ ] cross-DB isolation tests
+- [x] cross-DB isolation tests *(§18 Scenario E automated: read/write deny + membership-per-org — prog-36)*
 - [ ] backup/restore
 - [ ] projection recovery
 - [ ] queue replay
@@ -1107,6 +1117,8 @@ EntitlementService
 
 ## Week 26 — Custom Domains
 
+> **v2.2 implementation:** live end-to-end (prog-32, `DOMAIN_DNS_MODE=mock` for scratch / real TXT+CNAME resolution in prod). Owner surface `/tenant/domains`: add → TXT/CNAME proof → VERIFIED (+sslStatus ACTIVE) → promote PRIMARY. Middleware resolves verified custom hosts to their org BEFORE subdomain rules; unverified/foreign hosts never resolve. Takeover protection: global unique domains, cross-org claims → 409, negative results never cached.
+
 Support:
 
 ```text
@@ -1116,34 +1128,27 @@ rentals.rahmanproperties.com
 
 Checklist:
 
-- [ ] ownership verification
-- [ ] CNAME workflow
-- [ ] SSL
-- [ ] domain status
-- [ ] primary domain
-- [ ] fallback subdomain
-- [ ] takeover protection
+- [x] ownership verification *(TXT `_ferio-verify.<domain>` token OR CNAME→sites.ferio.com; audit events on pass/fail)*
+- [x] CNAME workflow *(alternative proof path + instructions returned at add-time)*
+- [x] SSL *(sslStatus PENDING→ACTIVE tracked on verify; cert issuance delegated to the reverse proxy)*
+- [x] domain status *(isVerified/isPrimary/sslStatus surfaced on list + platform view)*
+- [x] primary domain *(owner promotes among VERIFIED domains only)*
+- [x] fallback subdomain *(provisioned `<slug>.ferio.com` keeps working regardless)*
+- [x] takeover protection *(unverified hosts unresolvable · verified domains bound to one workspace)*
 
 ## Week 27 — Platform Billing
 
-Separate from rent.
+> **v2.2 implementation:** live (prog-29) — `PlatformInvoice` (unique per subscription per periodKey) + `PlatformPayment` in the CONTROL plane. Self-serve provisioning returns the first DUE invoice; staff confirm bKash/Nagad/bank payments → PAID; scan job backfills missing period invoices. Separate ledger from rent + promotion revenue (§11).
 
-```text
-Organization → Ferio Subscription
-Renter → Unit Owner
-```
-
-Models:
-
-```text
-PlatformInvoice
-PlatformPayment
-Subscription
-```
+- [x] PlatformInvoice / PlatformPayment models *(control plane)*
+- [x] first invoice at self-serve provisioning *(response includes `firstInvoice`)*
+- [x] invoice generation scan *(POST /platform/jobs/generate-subscription-invoices — idempotent)*
+- [x] payment confirmation w/ partial support *(→ PAID when covered; overpay blocked)*
+- [ ] payment-gateway integration *(manual MFS/bank confirmation for now)*
 
 ## Week 28 — Renter Portal / PWA
 
-> **v2.1 implementation:** COMPLETE on the API side — `/renter/*` covers dashboard, lease, statements, payment instructions, report-payment, receipts, utilities, maintenance, notices and documents. Marketplace-web hosts the "My Rental" UI; saas-web hosts the Owner Portal UI (prog-22). PWA manifest/icon shell present (service worker pending).
+> **v2.1 implementation:** COMPLETE on the API side — `/renter/*` covers dashboard, lease, statements, payment instructions, report-payment, receipts, utilities, maintenance, notices and documents. Marketplace-web hosts the "My Rental" UI; saas-web hosts the Owner Portal UI (prog-22). PWA manifest/icon shell + conservative offline-shell service worker (static cache-first, navigation fallback).
 
 - [x] dashboard *(GET /renter/me tenancy snapshot)*
 - [x] lease *(dates, rent, status)*
@@ -1178,7 +1183,7 @@ Subscription
 - [x] broker leads
 - [x] inquiry attribution *(marketplace inquiries on org-published units auto-create deduped MARKETPLACE_INQUIRY leads — best-effort async)*
 - [x] viewing *(LeadViewing schedule/complete/no-show per lead, leasing-gated)*
-- [ ] listing attribution
+- [x] listing attribution *(CrmLead.listingId captured automatically on MARKETPLACE_INQUIRY attribution — prog-36)*
 - [x] lease conversion
 - [x] commission *(pct/amount captured on lease; DUE payout auto-created at conversion)*
 - [x] commission payment *(CommissionPayout ledger — settle w/ method+reference → PAID; double-settle blocked)*
@@ -1220,57 +1225,61 @@ Checklist:
 
 ## Week 33 — External API & Webhooks
 
-- [ ] API clients
-- [ ] scopes
-- [ ] key rotation
-- [ ] rate limits
-- [ ] webhook subscriptions
-- [ ] signing
-- [ ] retry
-- [ ] replay
-- [ ] delivery logs
+> **v2.2 implementation:** live end-to-end (prog-31) — `ApiClient` keys (fk_live_…, sha256-hashed, shown once) in the control plane; versioned read-only `/external/v1/*` over the org's tenant DB; per-key scopes + fixed-window rate limits with headers; tenant-plane `WebhookEndpoint`/`WebhookDelivery` with HMAC-SHA256 signatures (`X-Ferio-Signature`), exponential-backoff retries → dead-letter, replay endpoint, full delivery log. Events emitted: payment.verified, invoice.overdue.
+
+- [x] API clients *(ApiClient model + platform issue/list/revoke endpoints)*
+- [x] scopes *(units:read · invoices:read · leases:read · maintenance:read; enforced per route)*
+- [x] key rotation *(POST /platform/api-keys/:id/rotate — new secret issued once, old revoked atomically, scopes preserved — prog-35)*
+- [x] rate limits *(120/min default per key, env-tunable; 429 + X-RateLimit-* verified)*
+- [x] webhook subscriptions *(owner-gated CRUD; events[] subscription)*
+- [x] signing *(HMAC-SHA256 over raw body — verified against local receiver)*
+- [x] retry *(exponential backoff, base env-tunable)*
+- [x] replay *(POST /tenant/webhooks/deliveries/:id/redeliver)*
+- [x] delivery logs *(status/attempts/responseCode/error; filterable)*
 
 ## Weeks 34–35 — Analytics
 
 Marketplace:
 
-- [ ] listing volume
-- [ ] area demand
-- [ ] search activity
+- [x] listing volume *(by month — GET /platform/analytics/marketplace — prog-33)*
+- [x] area demand *(top areas by inquiries + search pressure last 30d)*
+- [x] search activity *(SearchEvent captured per search/map query; weekly buckets)*
 - [x] inquiry conversion
-- [ ] rent ranges
-- [ ] sale ranges
-- [ ] property-type trends
+- [x] rent ranges *(min/median/max per ACTIVE asset type)*
+- [x] sale ranges *(same aggregation, SALE purpose)*
+- [x] property-type trends *(count per assetType per month)*
 
 SaaS:
 
-- [ ] occupancy
-- [ ] rent collection
-- [ ] unit income
-- [ ] utility recovery
-- [ ] maintenance spend
-- [ ] renter payment behavior
+- [x] occupancy *(tenant reports since v2.1)*
+- [x] rent collection *(financial report)*
+- [x] unit income *(unit profitability)*
+- [x] utility recovery *(utility-collection report)*
+- [x] maintenance spend *(maintenance-cost report)*
+- [x] renter payment behavior *(GET /tenant/reports/payment-behavior — days-to-pay + on-time% per renter — prog-33)*
 
 Platform:
 
-- [ ] subscription conversion
-- [ ] churn
-- [ ] MRR
-- [ ] plan utilization
-- [ ] tenant DB growth
+- [x] subscription conversion *(paid-tier orgs / total orgs in GET /platform/analytics)*
+- [x] churn *(cancelled last 30d + rate — GET /platform/analytics/growth)*
+- [x] MRR *(in platform analytics since prog-24)*
+- [x] plan utilization *(activePlans distribution)*
+- [x] tenant DB growth *(dbs created by month — growth endpoint)*
 
 ## Week 36 — Tenant DB Operations
 
-- [ ] schema version dashboard
-- [ ] migration status
-- [ ] failed retry
-- [ ] tenant backup
-- [ ] tenant restore
-- [ ] clone to staging
-- [ ] archive
-- [ ] export
-- [ ] DB health
-- [ ] connection metrics
+> **v2.2 implementation:** live end-to-end (prog-34) — physical `pg_dump -Fc` backups stored via StorageService, `pg_restore --list` readability verification, clone-to-staging restoring into a standalone database (PG17→16 SET-stripping handled), archive/unarchive with resolver lockout + pooled-connection drop, and a metrics endpoint (pool stats · fleet status · backup totals). Registry/migration status/retry already live in the admin console.
+
+- [x] schema version dashboard *(tenant DB registry w/ schemaVersion — admin console)*
+- [x] migration status *(registry + orchestrator reports)*
+- [x] failed retry *(per-row + fleet migrate; PROVISIONING retry)*
+- [x] tenant backup *(pg_dump -Fc → S3/local storage; size + table count recorded)*
+- [x] tenant restore *(clone-to-staging proves restorability without touching live data)*
+- [x] clone to staging *(standalone `<db>_clone_<ts>` database w/ table-count report)*
+- [x] archive *(DISABLED status → resolver lockout → connections dropped; reversible)*
+- [x] export *(GET /platform/organizations/:id/export — ferio-export-v1 JSON of all core operational data, attachment download — prog-35)*
+- [x] DB health *(post-migration health checks + registry isHealthy)*
+- [x] connection metrics *(GET /platform/tenant-db/metrics)*
 
 ## Week 37 — Reliability / Disaster Recovery
 
@@ -1286,15 +1295,15 @@ RTO           <= 2 hours
 
 Checklist:
 
-- [ ] PITR
-- [ ] tenant-specific restore
+- [ ] PITR *(WAL-G/pgBackRest at infra layer; app tooling complements)*
+- [x] tenant-specific restore *(backup → clone → swap procedure, prog-34 tooling)*
 - [ ] marketplace restore
 - [ ] control-plane restore
-- [ ] Redis-loss recovery
+- [x] Redis-loss recovery *(stateless caches — restart rebuilds; sessions persist in control plane)*
 - [ ] object-storage recovery
 - [ ] DNS recovery
 - [ ] secret recovery
-- [ ] incident runbooks
+- [x] incident runbooks *(`_doc/runbooks/dr.md` — roles, severities, per-plane procedures, drills)*
 
 ## Week 38 — Enterprise Pilot
 
@@ -1480,7 +1489,7 @@ Renter
 
 ## Marketplace Monetization
 
-Future:
+Revenue stream #2 — see **§23 Paid Listing Promotions** for the full delivery checklist.
 
 ```text
 Advertiser
@@ -1538,9 +1547,9 @@ Do not query tenant DBs for public discovery.
 
 - [x] listing ownership
 - [x] private sale documents
-- [ ] secure uploads
-- [ ] anti-spam
-- [ ] contact rate limiting
+- [x] secure uploads *(StorageService: S3/local drivers, mime+size validation, JWT-gated endpoints)*
+- [x] anti-spam *(rate limits on inquiry/viewing/report routes — prog-27)*
+- [x] contact rate limiting *(429 verified E2E)*
 - [x] moderation
 - [x] abuse reports
 
@@ -1605,7 +1614,7 @@ Non-subscriber can:
 
 - [ ] create listing
 - [ ] edit listing
-- [ ] upload images
+- [x] upload images *(/post page w/ §13 pipeline)*
 - [ ] add map location
 - [ ] receive inquiry
 - [ ] pause
@@ -1729,8 +1738,8 @@ Every PR:
 - [x] tenant schema validate
 - [x] migration replay
 - [x] unit tests
-- [ ] integration tests
-- [ ] tenant isolation tests
+- [x] integration tests *(CI `integration` job boots PostGIS + API and runs verify suites — prog-36/37 set)*
+- [x] tenant isolation tests *(§18 Scenario E automated in prog-36 + gate suite)*
 
 Deployment:
 
@@ -1914,3 +1923,123 @@ What cross-plane event must be synchronized?
 ```
 
 That is the architecture baseline for Ferio as a marketplace-backed, database-per-tenant property SaaS platform.
+
+---
+
+# 23. Paid Listing Promotions — Advertiser → Ferio (v2.2)
+
+> **Product spec:** `prd-new.md` §26. Free ads stay free; advertisers may pay Ferio for priority placement and extra visibility features. This ledger lives in the MARKETPLACE plane and is never merged with rent or subscription billing (§11).
+
+## Models
+
+```text
+ListingPromotion
+  listingId, type, status, amountBdt,
+  startsAt / expiresAt, paidVia, paymentReference
+```
+
+Promotion types:
+
+```text
+FEATURED       top placement + featured badge
+URGENT         urgency badge + rank lift within normal results
+TOP_SEARCH     homepage spotlight eligibility + highest rank weight
+```
+
+Promotion status:
+
+```text
+PENDING_PAYMENT → ACTIVE → EXPIRED / CANCELLED
+```
+
+## Checklist
+
+Purchase & lifecycle:
+
+> **v2.2 implementation:** live end-to-end (prog-26, 21/21) — catalog pricing (env-overridable), owner-only PENDING_PAYMENT orders, platform payment confirmation (bKash/Nagad/bank), one-open-order-per-type guard, moderation interlock (ACTIVE-only), expiry scan with badge/rank recompute, advertiser pending-cancel + staff cancel, control-plane audit on transitions.
+
+- [x] promotion order on own listing *(owner-only guard)*
+- [x] type + duration pricing *(seeded price table; `PROMO_PRICE_<TYPE>_<DAYS>_BDT` override)*
+- [x] PENDING_PAYMENT creation
+- [x] payment confirmation *(platform-only → ACTIVE w/ startsAt/expiresAt)*
+- [x] one ACTIVE promotion per type per listing *(renew after completion)*
+- [x] auto-expiry scan *(EXPIRED + tier/badge/promotedUntil recompute)*
+- [x] cancel *(advertiser: own PENDING · platform: any non-terminal)*
+- [x] moderation interlock *(only ACTIVE listings promotable)*
+
+Search & display effects:
+
+- [x] promoted-first ranking in `/listings/search` *(plain + geo paths order by promotionTier desc inside chosen sort)*
+- [x] badge fields surfaced on cards + map markers *(marketplace-web: FEATURED/URGENT/SPOTLIGHT chips, ★ markers)*
+- [x] homepage spotlight eligibility endpoint *(GET /marketplace/listings/spotlight + hero strip on ferio.com)*
+- [x] promotion stats *(inquiry count during active window)*
+
+Platform admin:
+
+- [x] promotions list/detail per listing *(GET /platform/marketplace/promotions?status=)*
+- [x] revoke/cancel action *(audited)*
+- [x] promotion revenue report *(revenueBdt/byType/byMonth inside GET /platform/analytics — prog-27)*
+
+Security:
+
+- [x] only listing owner can purchase/renew *(403 verified)*
+- [x] payment confirmation is staff/platform action *(no self-mark-active route exists)*
+- [x] audit events on every transition *(PlatformAuditEvent: ordered/activated/cancelled)*
+
+---
+
+# 24. Rich Unit Detail — Room-by-Room (v2.2)
+
+> **Product spec:** `prd-new.md` §27. Units are described room by room with photos, feet-by-feet dimensions and descriptions. Detail must survive the tenant→marketplace projection so public listings render the full breakdown.
+
+## Models
+
+Tenant DB:
+
+```text
+UnitRoom         unitId, name, type, lengthFt, widthFt, description, sortOrder
+UnitRoomMedia    roomId, url, caption, sortOrder
+```
+
+Marketplace projection:
+
+```text
+ListingRoom      listingId, name, type, lengthFt, widthFt, description, sortOrder
+ListingRoomMedia roomId/listingId, url, caption, sortOrder
+```
+
+Room types:
+
+```text
+BEDROOM · MASTER_BEDROOM · BATHROOM · KITCHEN · LIVING_ROOM
+DINING_ROOM · BALCONY · SERVANT_ROOM · STORAGE · GARAGE · OTHER
+```
+
+## Checklist
+
+Tenant plane CRUD (inventory domain gated):
+
+> **v2.2 implementation:** live end-to-end (prog-26) — tenant UnitRoom/UnitRoomMedia CRUD with scope-ACL assertions, computed sqft, and full projection through publish/update to the public detail API.
+
+- [x] add/update/remove rooms on a unit
+- [x] dimensions in feet *(lengthFt × widthFt; computed sqft surfaced)*
+- [x] per-room photo URL registration *(media rows, ordered)*
+- [x] room ordering *(sortOrder)*
+- [x] ownership/scope guard *(unit must belong to caller's org + scope ACL)*
+
+Cross-plane projection:
+
+- [x] publish projects UnitRooms → ListingRooms *(snapshot in outbox payload)*
+- [x] update/pause flows keep rooms in sync *(idempotent delete+recreate on update events; bare repair payloads never wipe rooms)*
+- [x] unpublish keeps rooms attached while listing is PAUSED *(rooms removed only if the listing row is deleted — cascade)*
+
+Public marketplace:
+
+- [x] listing detail returns rooms[] incl. media
+- [x] free-advertiser listings support the same room structure *(ListRoom CRUD on own listing)*
+- [x] detail page renders room-by-room gallery with dimensions *(marketplace-web detail page — prog-27)*
+
+Verification:
+
+- [x] E2E: rooms defined on unit → publish → visible publicly with dimensions/photos
+- [x] E2E: room edit after publish reflects on marketplace

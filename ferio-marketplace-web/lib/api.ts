@@ -31,6 +31,9 @@ export interface ListingCard {
   district: string | null;
   coverImageUrl: string | null;
   distanceKm?: number | null;
+  /** §23 paid promotion state */
+  promotionTier?: number;
+  promotionBadges?: string[];
   seller: SellerSummary;
   createdAt: string;
 }
@@ -73,6 +76,11 @@ export interface ListingDetail {
   publishedAt: string | null;
   createdAt: string;
 
+  /** §23 live promotion badges (FEATURED / URGENT / TOP_SEARCH) */
+  promotionTier?: number;
+  promotionBadges?: string[];
+  promotedUntil?: string | null;
+
   seller: {
     id: string;
     displayName: string;
@@ -97,6 +105,17 @@ export interface ListingDetail {
     name: string;
     docType: string;
     visibility: string;
+  }>;
+  /** §24 room-by-room breakdown (projected from managed units or seller-entered) */
+  rooms: Array<{
+    id: string;
+    name: string;
+    type: string;
+    lengthFt: number | null;
+    widthFt: number | null;
+    description: string | null;
+    sortOrder: number;
+    media: Array<{ id: string; url: string; caption: string | null }>;
   }>;
 }
 
@@ -128,6 +147,8 @@ export interface MapMarker {
   purpose: string;
   latitude: number;
   longitude: number;
+  promotionTier?: number;
+  promotionBadges?: string[];
 }
 
 export interface MapResult {
@@ -224,6 +245,21 @@ export function getListing(id: string): Promise<ListingDetail> {
   return get(`/marketplace/listings/${id}`);
 }
 
+/** §23 homepage spotlight — listings with a live TOP_SEARCH promotion. */
+export interface SpotlightItem {
+  id: string;
+  title: string;
+  price: number;
+  purpose: ListingPurpose;
+  area: string | null;
+  coverImageUrl: string | null;
+  promotedUntil: string | null;
+}
+
+export function getSpotlight(limit = 6): Promise<{ items: SpotlightItem[] }> {
+  return get(`/marketplace/listings/spotlight?limit=${limit}`);
+}
+
 /** Current viewer's marketplace profile, creating it on first login. */
 export async function ensureMyAccount(user: {
   userId: string;
@@ -269,6 +305,120 @@ export function createInquiry(input: {
 }): Promise<{ id: string }> {
   const { listingId, ...body } = input;
   return post(`/marketplace/listings/${listingId}/inquiries`, body);
+}
+
+// ── Uploads (§13 secure pipeline) ──
+
+export async function uploadImage(
+  file: File,
+): Promise<{ url: string; key: string; contentType: string; size: number }> {
+  const token = authToken();
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API_URL}/marketplace/uploads/images`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: form,
+  });
+  if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+  const json = await res.json();
+  return json?.data ?? json;
+}
+
+export async function uploadDocument(
+  file: File,
+): Promise<{ url: string; key: string; contentType: string; size: number }> {
+  const token = authToken();
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API_URL}/marketplace/uploads/documents`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: form,
+  });
+  if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+  const json = await res.json();
+  return json?.data ?? json;
+}
+
+// ── Seller listing assembly (media / rooms) ──
+
+export function addListingMedia(
+  accountId: string,
+  listingId: string,
+  body: { url: string; isCover?: boolean; order?: number; caption?: string },
+) {
+  return post(`/marketplace/accounts/${accountId}/listings/${listingId}/media`, body);
+}
+
+export interface RoomInput {
+  name: string;
+  type?: string;
+  lengthFt?: number;
+  widthFt?: number;
+  description?: string;
+  sortOrder?: number;
+  media?: Array<{ url: string; caption?: string }>;
+}
+
+export function addListingRoom(accountId: string, listingId: string, dto: RoomInput) {
+  return post(`/marketplace/accounts/${accountId}/listings/${listingId}/rooms`, dto);
+}
+
+/** Create a listing for a marketplace seller account (goes to PENDING_REVIEW). */
+export function createListing(
+  accountId: string,
+  body: {
+    purpose: 'RENT' | 'SALE';
+    assetType: string;
+    title: string;
+    description?: string;
+    price: number;
+    area?: string;
+    district?: string;
+    bedrooms?: number;
+    bathrooms?: number;
+    floor?: number;
+    areaSqFt?: number;
+  },
+): Promise<{ id: string }> {
+  return post(`/marketplace/accounts/${accountId}/listings`, body);
+}
+
+export const ROOM_TYPES = [
+  'BEDROOM',
+  'MASTER_BEDROOM',
+  'BATHROOM',
+  'KITCHEN',
+  'LIVING_ROOM',
+  'DINING_ROOM',
+  'BALCONY',
+  'SERVANT_ROOM',
+  'STORAGE',
+  'GARAGE',
+  'OTHER',
+] as const;
+
+// ── §23 Paid promotions ──
+
+export interface PromotionCatalog {
+  currency: string;
+  products: Array<{
+    type: 'FEATURED' | 'URGENT' | 'TOP_SEARCH';
+    rankWeight: number;
+    durations: Array<{ days: number; priceBdt: number }>;
+  }>;
+}
+
+export function getPromotionCatalog(): Promise<PromotionCatalog> {
+  return get('/marketplace/promotions/catalog');
+}
+
+export function orderPromotion(
+  listingId: string,
+  body: { type: string; durationDays: number },
+): Promise<{ id: string; status: string; amountBdt: number }> {
+  return post(`/marketplace/listings/${listingId}/promotions`, body);
 }
 
 // ── Renter portal (/renter/*) ──

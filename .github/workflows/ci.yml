@@ -77,8 +77,115 @@ jobs:
         working-directory: ferio-nest-prisma
         run: npx jest --coverage=false --testPathIgnorePatterns "test/"
 
-      # TODO(§19): integration suite with service containers,
-      # tenant-isolation e2e, and frontend typecheck/build jobs.
+  integration:
+    name: Integration — verify suites (§19)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ferio_control
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      CONTROL_PLANE_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ferio_control
+      MARKETPLACE_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ferio_marketplace
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ferio_marketplace
+      TENANT_DB_HOST: localhost
+      TENANT_DB_PORT: 5432
+      TENANT_DB_USERNAME: postgres
+      TENANT_DB_PASSWORD: postgres
+      SCHEDULER_DISABLED: 'true'
+      DOMAIN_DNS_MODE: mock
+      PORT: 6799
+      JWT_ACCESS_SECRET: ci-integration-secret
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ferio-nest-prisma/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: ferio-nest-prisma
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Prepare databases
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE ferio_marketplace;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE replay_check;"
+        working-directory: ferio-nest-prisma
+
+      - name: Generate Prisma clients
+        working-directory: ferio-nest-prisma
+        run: pnpm run prisma:platform:generate && pnpm run prisma:generate
+
+      - name: Push plane schemas
+        run: |
+          npx prisma db push --skip-generate --config prisma/control-plane/prisma.config.ts
+          npx prisma db push --skip-generate --config prisma/marketplace/prisma.config.ts
+        working-directory: ferio-nest-prisma
+
+      - name: Replay tenant migrations on empty DB (§14)
+        run: npx prisma migrate deploy --config prisma/tenant/prisma.config.ts
+        working-directory: ferio-nest-prisma
+        env:
+          TENANT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/replay_check
+
+      - name: Apply marketplace SQL migrations
+        run: pnpm run prisma:marketplace:sql
+        working-directory: ferio-nest-prisma
+
+      - name: Build backend
+        working-directory: ferio-nest-prisma
+        run: pnpm run build
+
+      - name: Seed CI baseline
+        working-directory: ferio-nest-prisma
+        run: npx ts-node --transpile-only prisma/scripts/seed-ci.ts
+
+      - name: Start API
+        working-directory: ferio-nest-prisma
+        run: |
+          node dist/src/main.js > api.log 2>&1 &
+          echo $! > api.pid
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:6799/api/v1/identity/me -o /dev/null && break || sleep 2
+          done
+
+      - name: Provision sheakh-fam workspace (PRO)
+        working-directory: ferio-nest-prisma
+        run: |
+          STAFF=$(curl -s -X POST http://localhost:6799/api/v1/identity/platform/login -H 'Content-Type: application/json' -d '{"email":"admin@ferio.test","password":"RootAdmin1!"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['token'])")
+          OWNER=$(curl -s http://localhost:6799/api/v1/identity/me -H "Authorization: Bearer $(curl -s -X POST http://localhost:6799/api/v1/identity/login -H 'Content-Type: application/json' -d '{"email":"owner@demo.test","password":"supersecret1"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['token'])") | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['userId'])")
+          curl -s -X POST http://localhost:6799/api/v1/platform/organizations -H "Authorization: Bearer $STAFF" -H 'Content-Type: application/json' -d "{\"name\":\"Sheakh Family Properties\",\"slug\":\"sheakh-fam\",\"planTier\":\"PRO\",\"ownerUserId\":\"$OWNER\"}" | head -c 200
+
+      - name: Run verify suites
+        working-directory: ferio-nest-prisma
+        run: |
+          set -e
+          for s in prog13 prog19 prog30 prog36 prog37; do
+            echo "── $$s ──"
+            npx ts-node --transpile-only -r tsconfig-paths/register test/$$s.verify.ts
+          done
+
+      - name: Stop API
+        if: always()
+        run: kill $(cat api.pid) 2>/dev/null || true
+        working-directory: ferio-nest-prisma
 
   frontends:
     name: Frontends — build

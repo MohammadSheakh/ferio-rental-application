@@ -31,6 +31,16 @@ interface UnitProjectionPayload {
   district?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  /** §24 room-by-room detail — present on publish/update events only. */
+  rooms?: Array<{
+    name: string;
+    type: string;
+    lengthFt?: number | null;
+    widthFt?: number | null;
+    description?: string | null;
+    sortOrder?: number;
+    media?: Array<{ url: string; caption?: string }>;
+  }>;
 }
 
 /**
@@ -259,6 +269,12 @@ export class MarketplaceProjectionWorker
       listingId = created.id;
     }
 
+    // §24: idempotent room replace — only when the event carries the
+    // snapshot (repair events with bare payloads never wipe rooms).
+    if (p.rooms !== undefined) {
+      await this.replaceProjectedRooms(listingId, p.rooms);
+    }
+
     // Bind back into the tenant DB so future events carry targetListingId.
     await dbSafeBind(
       this.tenantDbManager,
@@ -266,6 +282,40 @@ export class MarketplaceProjectionWorker
       p.unitId,
       listingId,
     );
+  }
+
+  /**
+   * Replace the projected ListingRooms for a listing with the tenant-side
+   * snapshot. Delete-all + recreate keeps the mapping trivial and the
+   * operation idempotent under at-least-once redelivery.
+   */
+  private async replaceProjectedRooms(
+    listingId: string,
+    rooms: NonNullable<UnitProjectionPayload['rooms']>,
+  ) {
+    await this.marketplacePrisma.$transaction(async (tx) => {
+      await tx.listingRoom.deleteMany({ where: { listingId } });
+      for (const r of rooms) {
+        await tx.listingRoom.create({
+          data: {
+            listingId,
+            name: r.name,
+            type: (r.type as any) ?? 'OTHER',
+            lengthFt: r.lengthFt ?? null,
+            widthFt: r.widthFt ?? null,
+            description: r.description ?? null,
+            sortOrder: r.sortOrder ?? 0,
+            media: {
+              create: (r.media ?? []).map((m, i) => ({
+                url: m.url,
+                caption: m.caption ?? null,
+                sortOrder: i,
+              })),
+            },
+          },
+        });
+      }
+    });
   }
 
   private async setListingStatus(

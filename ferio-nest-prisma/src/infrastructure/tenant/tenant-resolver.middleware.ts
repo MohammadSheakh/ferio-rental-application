@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { ControlPlanePrismaService } from '../control-plane/control-plane-prisma.service';
+import { TenantCacheService } from './tenant-cache.service';
 
 /**
  * Tenant Context — attached to every request within the SaaS tenant plane
@@ -49,54 +50,28 @@ declare global {
 export class TenantResolverMiddleware implements NestMiddleware {
   private readonly logger = new Logger(TenantResolverMiddleware.name);
 
-  /** Simple in-memory cache for tenant lookups (Redis in production) */
-  private readonly cache = new Map<
-    string,
-    { context: TenantContext; expiresAt: number }
-  >();
-  private readonly CACHE_TTL_MS = 60_000; // 1 minute
-
-  constructor(private readonly controlPlane: ControlPlanePrismaService) {}
+  constructor(
+    private readonly controlPlane: ControlPlanePrismaService,
+    private readonly cacheStore: TenantCacheService,
+  ) {}
 
   async use(req: Request, _res: Response, next: NextFunction) {
-    const slug = this.extractSlug(req);
-
-    if (!slug) {
-      // Not a tenant request — pass through (marketplace or public routes)
-      return next();
-    }
-
-    try {
-      const context = await this.resolveContext(slug);
-      req.tenantContext = context;
-      next();
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  /**
-   * Extract the tenant slug from the request.
-   *
-   * Priority:
-   * 1. `X-Tenant-Slug` header (dev override)
-   * 2. Subdomain from Host header (e.g. "rahman" from "rahman.ferio.com")
-   */
-  private extractSlug(req: Request): string | null {
-    // Dev override header
+    // Dev override header wins first
     const headerSlug = req.headers['x-tenant-slug'] as string | undefined;
     if (headerSlug) {
-      return headerSlug.toLowerCase().trim();
+      try {
+        const context = await this.resolveContext(headerSlug.toLowerCase().trim());
+        req.tenantContext = context;
+        return next();
+      } catch (err) {
+        return next(err);
+      }
     }
 
-    // Extract from Host
     const host = req.headers.host;
-    if (!host) return null;
+    if (!host) return next();
+    const hostname = host.split(':')[0].toLowerCase();
 
-    // Remove port
-    const hostname = host.split(':')[0];
-
-    // Skip localhost / IP addresses / platform domains
     if (
       hostname === 'localhost' ||
       hostname === '127.0.0.1' ||
@@ -105,16 +80,46 @@ export class TenantResolverMiddleware implements NestMiddleware {
       hostname === 'api.ferio.com' ||
       hostname === 'admin.ferio.com'
     ) {
-      return null;
+      return next();
     }
 
-    // Extract first subdomain: "rahman.ferio.com" → "rahman"
-    const parts = hostname.split('.');
-    if (parts.length >= 3) {
-      return parts[0].toLowerCase();
-    }
+    try {
+      // § Week 26: verified custom domains resolve before subdomain rules —
+      // unverified/foreign custom hosts must NOT resolve (takeover guard).
+      const customOrg = await this.findOrganizationByCustomDomain(hostname);
+      if (customOrg) {
+        req.tenantContext = await this.resolveContext(customOrg);
+        return next();
+      }
 
-    return null;
+      const parts = hostname.split('.');
+      if (parts.length >= 3) {
+        req.tenantContext = await this.resolveContext(parts[0].toLowerCase());
+        return next();
+      }
+      return next();
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /** Cached lookup: hostname → verified owning org's slug.
+   *  Only POSITIVE results are cached so a freshly-verified domain
+   *  resolves immediately (a null must never poison the cache). */
+  private async findOrganizationByCustomDomain(
+    hostname: string,
+  ): Promise<string | null> {
+    const cached = this.cacheStore.getDomain(hostname);
+    if (cached !== undefined) return cached;
+
+    const row = await this.controlPlane.organizationDomain.findUnique({
+      where: { domain: hostname },
+      select: { isVerified: true, organization: { select: { slug: true } } },
+    });
+    const slug =
+      row && row.isVerified && row.organization ? row.organization.slug : null;
+    if (slug) this.cacheStore.setDomain(hostname, slug);
+    return slug;
   }
 
   /**
@@ -122,10 +127,8 @@ export class TenantResolverMiddleware implements NestMiddleware {
    */
   private async resolveContext(slug: string): Promise<TenantContext> {
     // Check cache
-    const cached = this.cache.get(slug);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.context;
-    }
+    const cached = this.cacheStore.getContext(slug);
+    if (cached) return cached;
 
     // Query Control Plane
     const org = await this.controlPlane.saasOrganization.findUnique({
@@ -180,10 +183,7 @@ export class TenantResolverMiddleware implements NestMiddleware {
     };
 
     // Cache result
-    this.cache.set(slug, {
-      context,
-      expiresAt: Date.now() + this.CACHE_TTL_MS,
-    });
+    this.cacheStore.setContext(slug, context);
 
     return context;
   }
@@ -211,13 +211,11 @@ export class TenantResolverMiddleware implements NestMiddleware {
    * Invalidate cache for a specific slug (e.g. after status change).
    */
   invalidateCache(slug: string): void {
-    this.cache.delete(slug);
+    this.cacheStore.invalidateContext(slug);
   }
 
-  /**
-   * Clear entire cache.
-   */
+  /** Clear entire cache. */
   clearCache(): void {
-    this.cache.clear();
+    this.cacheStore.clear();
   }
 }

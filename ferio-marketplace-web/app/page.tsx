@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Search, MapPin, X, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, MapPin, X, Plus, ChevronLeft, ChevronRight, Star } from 'lucide-react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import {
@@ -9,9 +9,11 @@ import {
   mapSearch,
   ensureMyAccount,
   createInquiry,
+  getSpotlight,
   type ListingCard,
   type MapMarker,
   type SearchParams,
+  type SpotlightItem,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
@@ -62,6 +64,13 @@ export default function MarketplacePage() {
   const [meta, setMeta] = useState({ total: 0, page: 1, limit: 24, totalPages: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [spotlight, setSpotlight] = useState<SpotlightItem[]>([]);
+
+  useEffect(() => {
+    getSpotlight(6)
+      .then((res) => setSpotlight(res.items ?? []))
+      .catch(() => setSpotlight([]));
+  }, []);
 
   const params: SearchParams = {
     purpose: purpose || undefined,
@@ -185,6 +194,44 @@ export default function MarketplacePage() {
             Contact owners directly — no middlemen.
           </p>
         </section>
+
+        {/* ── §23 Spotlight (paid TOP_SEARCH promotions) ── */}
+        {spotlight.length > 0 && (
+          <section className="space-y-4">
+            <div className="flex items-baseline justify-between">
+              <h2 className="eyebrow-label flex items-center gap-1.5">
+                <Star className="h-3 w-3" /> Featured this week
+              </h2>
+              <span className="text-[11px] text-[#6e6e73]">Paid promotion</span>
+            </div>
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+              {spotlight.slice(0, 3).map((s) => (
+                <Link key={s.id} href={`/listings/${s.id}`} className="group block">
+                  <div className="relative mb-2 h-36 w-full overflow-hidden rounded-[10px] bg-[#fafafa]">
+                    {s.coverImageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={s.coverImageUrl}
+                        alt={s.title}
+                        className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                      />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-xs text-[#6e6e73]">No photo</div>
+                    )}
+                    <span className="absolute left-2 top-2 rounded-full bg-[#111114] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                      Spotlight
+                    </span>
+                  </div>
+                  <h3 className="line-clamp-1 text-sm font-medium">{s.title}</h3>
+                  <p className="text-xs text-[#6e6e73]">
+                    {formatPrice(s.price, s.purpose === 'RENT' ? 'MONTHLY' : null)}
+                    {s.area ? ` · ${s.area}` : ''}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* ── Search bar ── */}
         <section className="space-y-4 rounded-[10px] border border-[#e8e8ea] p-5">
@@ -386,9 +433,10 @@ export default function MarketplacePage() {
 
 /** Image-first card per design language §6 — no border, no shadow. */
 function ListingGridCard({ item }: { item: ListingCard }) {
+  const badges = item.promotionBadges ?? [];
   return (
     <Link href={`/listings/${item.id}`} className="group block">
-      <div className="mb-3 h-48 w-full overflow-hidden rounded-[10px] bg-[#fafafa]">
+      <div className="relative mb-3 h-48 w-full overflow-hidden rounded-[10px] bg-[#fafafa]">
         {item.coverImageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -399,6 +447,25 @@ function ListingGridCard({ item }: { item: ListingCard }) {
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-[#6e6e73]">
             No photo
+          </div>
+        )}
+        {badges.length > 0 && (
+          <div className="absolute left-2 top-2 flex gap-1.5">
+            {badges.includes('FEATURED') && (
+              <span className="rounded-full bg-[#111114] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                Featured
+              </span>
+            )}
+            {badges.includes('URGENT') && (
+              <span className="rounded-full bg-[#fef3c7] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#92400e]">
+                Urgent
+              </span>
+            )}
+            {badges.includes('TOP_SEARCH') && (
+              <span className="flex items-center gap-0.5 rounded-full bg-[#111114] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                <Star className="h-2.5 w-2.5" /> Spotlight
+              </span>
+            )}
           </div>
         )}
       </div>

@@ -4,6 +4,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { TenantDatabaseManager } from '../../infrastructure/tenant/tenant-database.manager';
+import { TenantLedgerService } from './tenant-ledger.service';
+import { TenantWebhookService } from './tenant-webhook.service';
 import {
   ChargeCategory,
   InvoiceStatus,
@@ -39,7 +41,11 @@ export interface RecordPaymentInput {
 
 @Injectable()
 export class TenantBillingService {
-  constructor(private readonly tenantDbManager: TenantDatabaseManager) {}
+  constructor(
+    private readonly tenantDbManager: TenantDatabaseManager,
+    private readonly ledger: TenantLedgerService,
+    private readonly webhooks: TenantWebhookService,
+  ) {}
 
   /**
    * Get or create billing account for a unit.
@@ -211,6 +217,7 @@ export class TenantBillingService {
     verifiedBy: string,
   ) {
     const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+    let transitioned = false;
 
     return db.$transaction(async (tx) => {
       const payment = await tx.payment.findUnique({ where: { id: paymentId } });
@@ -235,8 +242,30 @@ export class TenantBillingService {
           rejectionReason: null,
         },
       });
+      transitioned = true;
 
       await this.applyToInvoice(tx, payment.invoiceId, payment.amount);
+
+      // § Gate 5: balanced double-entry posting (cash-in vs receivables)
+      await this.ledger
+        .postPaymentVerified(organizationId, paymentId, {
+          method: payment.method,
+          amount: payment.amount,
+          invoiceId: payment.invoiceId,
+          entryDate: new Date(),
+        })
+        .catch((err) => {
+          void tx.tenantAuditEvent.create({
+            data: {
+              actorId: verifiedBy,
+              action: 'ledger.post_failed',
+              resourceType: 'Payment',
+              resourceId: paymentId,
+              metadata: { error: String(err?.message ?? err).slice(0, 300) },
+            },
+          });
+        });
+
       await tx.tenantAuditEvent.create({
         data: {
           actorId: verifiedBy,
@@ -248,6 +277,20 @@ export class TenantBillingService {
       });
 
       return updated;
+    }).then(async (verified) => {
+      // § Week 33: fan out to subscribed webhooks (best-effort, only on
+      // an actual PENDING/REPORTED → VERIFIED transition)
+      if (transitioned && (verified as any)?.status === PaymentStatus.VERIFIED) {
+        await this.webhooks
+          .emit(organizationId, 'payment.verified', {
+            paymentId,
+            invoiceId: (verified as any)?.invoiceId ?? null,
+            amount: (verified as any)?.amount,
+            receiptNumber: (verified as any)?.receiptNumber,
+          })
+          .catch(() => {});
+      }
+      return verified;
     });
   }
 
@@ -334,6 +377,17 @@ export class TenantBillingService {
       });
 
       await this.applyToInvoice(tx, payment.invoiceId, -payment.amount);
+
+      // § Gate 5: compensating ledger group (books stay balanced)
+      await this.ledger
+        .postPaymentReversed(organizationId, paymentId, {
+          method: payment.method,
+          amount: payment.amount,
+          invoiceId: payment.invoiceId,
+          entryDate: new Date(),
+        })
+        .catch(() => {});
+
       await tx.tenantAuditEvent.create({
         data: {
           actorId: reversedBy,

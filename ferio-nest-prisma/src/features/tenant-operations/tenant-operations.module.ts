@@ -4,6 +4,7 @@ import { TenantLeaseService } from './tenant-lease.service';
 import { TenantBillingService } from './tenant-billing.service';
 import { TenantUtilityService } from './tenant-utility.service';
 import { TenantMaintenanceService } from './tenant-maintenance.service';
+import { TenantLedgerService } from './tenant-ledger.service';
 import { TenantReportingService } from './tenant-reporting.service';
 import { TenantOutboxService } from './outbox/tenant-outbox.service';
 import { MarketplaceProjectionWorker } from './outbox/marketplace-projection.worker';
@@ -14,6 +15,10 @@ import { TenantIamController } from './tenant-iam.controller';
 import { MarketplaceProjectionService } from './marketplace-projection.service';
 import { ProjectionOpsController } from './projection-ops.controller';
 import { TenantOperationsController } from './tenant-operations.controller';
+import { TenantUploadController } from './tenant-upload.controller';
+import { TenantWebhookService } from './tenant-webhook.service';
+import { TenantWebhookController } from './tenant-webhook.controller';
+import { TenantDomainController } from './tenant-domain.controller';
 import { MarketplaceModule } from '../marketplace/marketplace.module';
 
 /**
@@ -36,6 +41,9 @@ import { MarketplaceModule } from '../marketplace/marketplace.module';
     ProjectionOpsController,
     TenantIamController,
     TenantCrmController,
+    TenantUploadController,
+    TenantWebhookController,
+    TenantDomainController,
   ],
   providers: [
     TenantPropertyService,
@@ -49,8 +57,12 @@ import { MarketplaceModule } from '../marketplace/marketplace.module';
     TenantOutboxService,
     MarketplaceProjectionWorker,
     MarketplaceProjectionService,
+    TenantLedgerService,
+    TenantWebhookService,
   ],
   exports: [
+    TenantLedgerService,
+    TenantWebhookService,
     TenantPropertyService,
     TenantLeaseService,
     TenantBillingService,

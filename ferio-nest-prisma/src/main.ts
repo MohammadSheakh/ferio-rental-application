@@ -144,6 +144,23 @@ async function bootstrap() {
   });
 
   // ────────────────────────────────────────────────────────────────────────
+  // Local Storage Driver — serve uploaded files at /uploads (§13)
+  // Only relevant when STORAGE_DRIVER=local (development/scratch).
+  // ────────────────────────────────────────────────────────────────────────
+
+  if (process.env.STORAGE_DRIVER !== 's3') {
+    const express = require('express');
+    const path = require('path');
+    const localDir =
+      process.env.STORAGE_LOCAL_DIR ?? path.join(process.cwd(), 'storage-uploads');
+    app.getHttpAdapter().getInstance().use(
+      '/uploads',
+      express.static(localDir, { fallthrough: false, maxAge: '30d' }),
+    );
+    logger.log(`💾 Serving local uploads from ${localDir} at /uploads`);
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
   // Swagger Documentation
   // ────────────────────────────────────────────────────────────────────────
 

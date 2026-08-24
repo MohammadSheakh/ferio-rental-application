@@ -2,7 +2,7 @@
 const B = process.env.API_BASE ?? 'http://localhost:6799/api/v1';
 let pass = 0, fail = 0;
 const ok = (l: string) => { pass++; console.log(`  ✅ ${l}`); };
-const bad = (l: string, d?: unknown) => { fail++; console.log(`  ❌ ${l}${d !== undefined ? ' → ' + String(d).slice(0, 160) : ''}`); };
+const bad = (l: string, d?: unknown) => { fail++; console.log(`  ❌ ${l}${d !== undefined ? ' → ' + (typeof d === 'object' ? JSON.stringify(d).slice(0, 200) : String(d).slice(0, 160)) : ''}`); };
 
 async function req(method: string, path: string, o: { token?: string; slug?: string; body?: unknown } = {}) {
   const res = await fetch(`${B}${path}`, {

@@ -256,6 +256,21 @@ enum AutomationExecStatus {
   SKIPPED_UNSUPPORTED
 }
 
+/// §24 Rich Unit Detail — room-by-room breakdown of a unit.
+enum RoomType {
+  BEDROOM
+  MASTER_BEDROOM
+  BATHROOM
+  KITCHEN
+  LIVING_ROOM
+  DINING_ROOM
+  BALCONY
+  SERVANT_ROOM
+  STORAGE
+  GARAGE
+  OTHER
+}
+
 // ──────────────────────────────────────────────────────────────
 // MODELS — Identity & Membership
 // ──────────────────────────────────────────────────────────────
@@ -265,6 +280,8 @@ model Member {
   id            String       @id @default(cuid())
   centralUserId String       /// Links to central identity
   role          MemberRole
+  delegationsGranted MemberDelegation[] @relation("DelegationsGranted")
+  delegationsReceived MemberDelegation[] @relation("DelegationsReceived")
   status        MemberStatus @default(INVITED)
   displayName   String
   email         String?
@@ -287,6 +304,26 @@ model Member {
 
 /// Pending membership invitation. Single-use token with expiry;
 /// acceptance activates (or creates) the Member row.
+/// § Week 9 delegation — a member temporarily grants write domains to
+/// another member. Enforced in the domain guards; expiry/revocation
+/// respected on every request.
+model MemberDelegation {
+  id           String    @id @default(cuid())
+  fromMemberId String
+  toMemberId   String
+  /// inventory | billing | leasing | maintenance
+  domains      String[]
+  expiresAt    DateTime?
+  revokedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  fromMember Member @relation("DelegationsGranted", fields: [fromMemberId], references: [id], onDelete: Cascade)
+  toMember   Member @relation("DelegationsReceived", fields: [toMemberId], references: [id], onDelete: Cascade)
+
+  @@index([toMemberId])
+}
+
 model MemberInvite {
   id          String     @id @default(cuid())
   email       String
@@ -324,6 +361,7 @@ model Property {
   buildings Building[]
   units     Unit[]        /// Units directly under property (no building)
   ownership PropertyOwnership[]
+  utilityAccountsAsAnchor UtilityAccount[] @relation("PropertyUtilityAnchor")
 
   @@index([status])
 }
@@ -372,6 +410,8 @@ model Unit {
   billingAccount BillingAccount?
   maintenanceRequests MaintenanceRequest[]
   utilityAccounts UtilityAccount[]
+  rooms     UnitRoom[]
+  utilityAllocations UtilityAllocation[]
 
   @@index([propertyId])
   @@index([buildingId])
@@ -432,6 +472,46 @@ model UnitOwnership {
   unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
 
   @@index([unitId])
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Rich Unit Detail (§24 room-by-room)
+// ──────────────────────────────────────────────────────────────
+
+/// One room inside a unit, with feet-by-feet dimensions and a
+/// description. Projected to the marketplace listing on publish.
+model UnitRoom {
+  id          String   @id @default(cuid())
+  unitId      String
+  name        String   /// "Master Bedroom", "Kitchen"
+  type        RoomType @default(OTHER)
+  lengthFt    Float?
+  widthFt     Float?
+  description String?
+  sortOrder   Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  unit  Unit            @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  media UnitRoomMedia[]
+
+  @@index([unitId])
+}
+
+/// Photo URL registrations scoped to one room of a unit.
+model UnitRoomMedia {
+  id        String @id @default(cuid())
+  roomId    String
+  url       String
+  caption   String?
+  sortOrder Int    @default(0)
+
+  createdAt DateTime @default(now())
+
+  room UnitRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -632,6 +712,9 @@ model Payment {
 model UtilityAccount {
   id       String       @id @default(cuid())
   unitId   String?
+  /// Anchor for BUILDING/COMMON_AREA scope accounts — shared bills
+  /// allocate across all units of this property.
+  propertyId String?
   scope    UtilityScope
   type     String       /// ELECTRICITY | WATER | GAS | INTERNET | GENERATOR | OTHER
   provider String?      /// DESCO | DPDC | WASA | Titas
@@ -642,6 +725,7 @@ model UtilityAccount {
   updatedAt DateTime @updatedAt
 
   unit     Unit?    @relation(fields: [unitId], references: [id])
+  property Property? @relation("PropertyUtilityAnchor", fields: [propertyId], references: [id])
   meters   Meter[]
   bills    UtilityBill[]
 
@@ -692,8 +776,57 @@ model UtilityBill {
   createdAt DateTime @default(now())
 
   utilityAccount UtilityAccount @relation(fields: [utilityAccountId], references: [id], onDelete: Cascade)
+  allocations    UtilityAllocation[]
 
   @@index([utilityAccountId])
+}
+
+/// § Weeks 17–18: per-unit shares computed by the allocation engine.
+/// Largest-remainder rounding keeps Σ amountBdt == bill.totalAmount.
+model UtilityAllocation {
+  id            String   @id @default(cuid())
+  utilityBillId String
+  unitId        String
+  amountBdt     Float
+  /// Human-readable basis, e.g. "submeter consumption=142 kWh", "area=1250 sqft"
+  basis         String?
+
+  createdAt DateTime @default(now())
+
+  bill UtilityBill @relation(fields: [utilityBillId], references: [id], onDelete: Cascade)
+  unit Unit        @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@unique([utilityBillId, unitId])
+  @@index([utilityBillId])
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Double-entry ledger (§ Week 15 / Gate 5)
+// ──────────────────────────────────────────────────────────────
+
+/// One leg of a balanced posting group. Invariant enforced by the
+/// LedgerService before insert: Σ debit == Σ credit within a groupId.
+model LedgerEntry {
+  id        String   @id @default(cuid())
+  /// Posting-group id (e.g. "payment:<id>", "wo-complete:<id>") —
+  /// every group is internally balanced by construction.
+  groupId   String
+  entryDate DateTime
+  /// CASH · BKASH · NAGAD · BANK · {CATEGORY}_RECEIVABLE ·
+  /// MAINTENANCE_EXPENSE · ACCOUNTS_PAYABLE …
+  account   String
+  debit     Float    @default(0)
+  credit    Float    @default(0)
+  refType   String?  /// Payment | WorkOrder | ManualAdjustment
+  refId     String?
+  memo      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([groupId])
+  @@index([account])
+  @@index([refType, refId])
+  @@index([entryDate])
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -718,6 +851,14 @@ model MaintenanceRequest {
   estimatedCost Float?
   actualCost    Float?
 
+  // § Weeks 20–21 workflow depth
+  estimateNote     String?
+  approvalStatus   String?   /// PENDING | APPROVED | REJECTED (estimate gate)
+  approvedAt       DateTime?
+  approvedBy       String?
+  renterConfirmedAt DateTime?
+  reopenCount      Int       @default(0)
+
   resolvedAt DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -738,8 +879,10 @@ model WorkOrder {
   status               String  @default("ASSIGNED") /// ASSIGNED | IN_PROGRESS | COMPLETED | CANCELLED
   notes                String?
   cost                 Float?
+  estimatedCost        Float?
   beforePhotoUrl       String?
   afterPhotoUrl        String?
+  startedAt            DateTime?
 
   scheduledDate DateTime?
   completedAt   DateTime?
@@ -758,6 +901,9 @@ model WorkOrder {
 /// Prospective renter pipeline. Conversion links to a real Renter row.
 model CrmLead {
   id       String        @id @default(cuid())
+  /// § Week 30 listing attribution — the marketplace ad that produced
+  /// this lead (set automatically on MARKETPLACE_INQUIRY attribution).
+  listingId String?
   source   CrmLeadSource @default(OTHER)
   name     String
   phone    String?
@@ -781,6 +927,7 @@ model CrmLead {
 
   @@index([status])
   @@index([assignedTo])
+  @@index([listingId])
   @@index([convertedRenterId])
 }
 
@@ -944,4 +1091,48 @@ model TenantAuditEvent {
   @@index([action])
   @@index([resourceType, resourceId])
   @@index([createdAt])
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODELS — Outbound webhooks (§ Week 33)
+// ──────────────────────────────────────────────────────────────
+
+/// Subscribed external endpoint. Deliveries are signed with `secret`
+/// (HMAC-SHA256 over the raw body, header X-Ferio-Signature).
+model WebhookEndpoint {
+  id          String   @id @default(cuid())
+  url         String
+  secret      String
+  events      String[] /// e.g. ["payment.verified", "invoice.overdue"]
+  enabled     Boolean  @default(true)
+  description String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deliveries WebhookDelivery[]
+
+  @@index([enabled])
+}
+
+/// One delivery attempt chain per (endpoint, event occurrence).
+model WebhookDelivery {
+  id            String   @id @default(cuid())
+  endpointId    String
+  event         String
+  payload       Json
+  status        String   @default("PENDING") /// PENDING | SUCCESS | FAILED
+  attempts      Int      @default(0)
+  maxAttempts   Int      @default(5)
+  nextAttemptAt DateTime?
+  responseCode  Int?
+  error         String?
+  deliveredAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([endpointId])
+  @@index([status, nextAttemptAt])
 }

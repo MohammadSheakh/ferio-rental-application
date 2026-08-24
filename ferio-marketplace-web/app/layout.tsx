@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
+import { ServiceWorkerRegistrar } from '@/components/ServiceWorkerRegistrar';
 
 export const metadata: Metadata = {
   title: "Ferio Property Marketplace — Rent & Buy Apartments, Land & Commercial Properties in Dhaka",
@@ -14,7 +15,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body><AuthProvider>{children}</AuthProvider></body>
+      <body><AuthProvider>{children}<ServiceWorkerRegistrar /></AuthProvider></body>
     </html>
   );
 }

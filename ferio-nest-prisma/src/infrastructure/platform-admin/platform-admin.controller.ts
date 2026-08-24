@@ -5,22 +5,34 @@ import {
   Body,
   Param,
   Patch,
+  Query,
+  Res,
   HttpCode,
   HttpStatus,
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { ControlPlanePrismaService } from '../control-plane/control-plane-prisma.service';
 import { ProvisioningService } from '../provisioning/provisioning.service';
 import { ProvisionOrganizationDto } from '../provisioning/dto/provision-organization.dto';
 import { TenantDatabaseManager } from '../tenant/tenant-database.manager';
+import { TenantResolverMiddleware } from '../tenant/tenant-resolver.middleware';
 import { TenantMigrationOrchestrator } from '../migrations/tenant-migration-orchestrator';
 import { EntitlementService } from '../entitlements/entitlement.service';
-import { PlatformAdminGuard, PlatformRoles } from '../identity/platform-admin.guard';
+import { PlatformAdminGuard, PlatformRoles, CurrentStaff } from '../identity/platform-admin.guard';
+import type { StaffPayload } from '../identity/platform-admin.guard';
 import { SubscriptionLifecycleService } from '../subscriptions/subscription-lifecycle.service';
 import { CronJobsService } from '../jobs/cron-jobs.service';
 import { MarketplacePrismaService } from '../marketplace/marketplace-prisma.service';
+import { Prisma } from '@prisma/marketplace-client';
+import { PlatformBillingService } from '../billing/platform-billing.service';
+import {
+  ApiKeyService,
+  API_SCOPES,
+} from '../api-external/api-key.service';
+import { TenantDbOpsService } from '../tenant-db-ops/tenant-db-ops.service';
 
 /**
  * Platform Admin Controller
@@ -47,6 +59,10 @@ export class PlatformAdminController {
     private readonly subscriptions: SubscriptionLifecycleService,
     private readonly cronJobs: CronJobsService,
     private readonly marketplacePrisma: MarketplacePrismaService,
+    private readonly platformBilling: PlatformBillingService,
+    private readonly apiKeys: ApiKeyService,
+    private readonly dbOps: TenantDbOpsService,
+    private readonly resolver: TenantResolverMiddleware,
   ) {}
 
   // ────────────────────────────────────────────────────────────
@@ -106,8 +122,9 @@ export class PlatformAdminController {
       where: { id },
       data: { status: 'SUSPENDED' },
     });
+    this.resolver.clearCache();
 
-    await this.controlPlane.platformAuditEvent.create({
+    this.controlPlane.platformAuditEvent.create({
       data: {
         action: 'organization.suspended',
         actorType: 'PLATFORM_USER',
@@ -131,6 +148,7 @@ export class PlatformAdminController {
       where: { id },
       data: { status: 'ACTIVE' },
     });
+    this.resolver.clearCache();
 
     await this.controlPlane.platformAuditEvent.create({
       data: {
@@ -420,6 +438,193 @@ export class PlatformAdminController {
     return this.cronJobs.runSubscriptionPastDueScan();
   }
 
+  @Post('jobs/rent-reminders')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '§ Week 22 emit rent.reminder webhooks for invoices due within N days' })
+  async rentReminders() {
+    return this.cronJobs.runRentReminderScan(3);
+  }
+
+  @Post('jobs/maintenance-escalation')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '§ Week 22 escalate stale maintenance tickets one urgency level' })
+  async maintenanceEscalation() {
+    return this.cronJobs.runMaintenanceEscalationScan(3);
+  }
+
+  @Post('jobs/generate-monthly-statements')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '§ Week 22 create current-period statements for all billed units (idempotent)' })
+  async generateStatements() {
+    return this.cronJobs.runMonthlyStatementScan();
+  }
+
+  @Post('jobs/expire-promotions')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '§23 expire paid promotions past their window (badge/rank removal)' })
+  async expirePromotions() {
+    return this.cronJobs.runPromotionExpiryScan();
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // § Week 27 Platform Billing (Organization → Ferio)
+  // ────────────────────────────────────────────────────────────
+
+  @Get('billing/invoices')
+  @ApiOperation({ summary: 'Platform subscription invoices (filter by org/status)' })
+  async listInvoices(
+    @Query('organizationId') organizationId?: string,
+    @Query('status') status?: 'DUE' | 'PAID' | 'VOID',
+  ) {
+    return this.platformBilling.listInvoices(organizationId, status as any);
+  }
+
+  @Post('billing/invoices/:id/payments')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Confirm an off-platform subscription payment → invoice PAID when covered',
+  })
+  async recordPayment(
+    @CurrentStaff() staff: StaffPayload,
+    @Param('id') invoiceId: string,
+    @Body() body: { method: string; amountBdt?: number; reference?: string },
+  ) {
+    if (!body?.method) throw new BadRequestException('method is required');
+    return this.platformBilling.recordPayment(invoiceId, body, staff?.sub ?? staff?.userId ?? null);
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // § Week 33 External API keys
+  // ────────────────────────────────────────────────────────────
+
+  @Post('organizations/:id/api-keys')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary:
+      'Issue an API key for an organization — the full key is returned ONCE (scopes default to all read scopes)',
+  })
+  async createApiKey(
+    @Param('id') id: string,
+    @Body()
+    body: { name: string; scopes?: string[]; createdBy?: string },
+  ) {
+    if (!body?.name) throw new BadRequestException('name is required');
+    return this.apiKeys.createKey(id, body);
+  }
+
+  @Get('api-keys/scopes')
+  @ApiOperation({ summary: 'List valid API key scopes' })
+  listScopes() {
+    return { scopes: API_SCOPES };
+  }
+
+  @Get('api-keys')
+  @ApiOperation({ summary: 'List issued API keys (filter by org)' })
+  async listApiKeys(@Query('organizationId') organizationId?: string) {
+    return this.apiKeys.listKeys(organizationId);
+  }
+
+  @Post('api-keys/:id/rotate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Rotate an API key — new secret issued once, old revoked immediately' })
+  async rotateApiKey(
+    @CurrentStaff() staff: StaffPayload,
+    @Param('id') id: string,
+  ) {
+    return this.apiKeys.rotate(id, staff?.sub ?? staff?.userId ?? null);
+  }
+
+  @Post('api-keys/:id/revoke')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Revoke an API key immediately' })
+  async revokeApiKey(@Param('id') id: string) {
+    return this.apiKeys.revoke(id);
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // § Week 36 Tenant DB Operations
+  // ────────────────────────────────────────────────────────────
+
+  @Post('organizations/:id/backups')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Take a physical pg_dump backup of the tenant DB → storage' })
+  async createBackup(
+    @Param('id') id: string,
+    @Body() body: { type?: string; note?: string },
+    @CurrentStaff() staff: StaffPayload,
+  ) {
+    return this.dbOps.createBackup(id, {
+      type: body?.type,
+      note: body?.note,
+      createdBy: staff?.sub ?? staff?.userId ?? null,
+    });
+  }
+
+  @Get('organizations/:id/backups')
+  @ApiOperation({ summary: 'List backups for one organization' })
+  async listOrgBackups(@Param('id') id: string) {
+    return this.dbOps.listBackups(id);
+  }
+
+  @Get('backups')
+  @ApiOperation({ summary: 'List all tenant backups (newest first)' })
+  async listBackups(@Query('organizationId') organizationId?: string) {
+    return this.dbOps.listBackups(organizationId);
+  }
+
+  @Post('backups/:id/verify')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Prove the archive is readable (pg_restore --list)' })
+  async verifyBackup(@Param('id') id: string) {
+    return this.dbOps.verifyBackup(id);
+  }
+
+  @Post('backups/:id/clone')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Clone-to-staging — restore into a fresh standalone database' })
+  async cloneBackup(@Param('id') id: string) {
+    return this.dbOps.cloneFromBackup(id);
+  }
+
+  @Post('organizations/:id/archive')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Archive: tenant DB DISABLED + connections dropped (resolver locks out)' })
+  async archiveOrg(@Param('id') id: string) {
+    return this.dbOps.setArchived(id, true);
+  }
+
+  @Post('organizations/:id/unarchive')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Un-archive: tenant DB back to READY' })
+  async unarchiveOrg(@Param('id') id: string) {
+    return this.dbOps.setArchived(id, false);
+  }
+
+  @Get('organizations/:id/export')
+  @ApiOperation({ summary: '§ Week 36 data-portability export — org operational data as JSON' })
+  async exportOrg(@Param('id') id: string, @Res() res: Response) {
+    const payload = await this.dbOps.exportOrganization(id);
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="ferio-export-${payload.organization.slug}.json"`,
+    );
+    res.end(JSON.stringify(payload));
+  }
+
+  @Get('tenant-db/metrics')
+  @ApiOperation({ summary: 'Connection pool stats + database fleet status + backup totals' })
+  async dbMetrics() {
+    return this.dbOps.metrics();
+  }
+
+  @Post('jobs/generate-subscription-invoices')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Create missing period invoices for all ACTIVE subscriptions' })
+  async generateSubscriptionInvoices() {
+    return this.platformBilling.generateDueInvoices();
+  }
+
   @Get('analytics')
   @ApiOperation({ summary: 'Platform analytics — orgs, MRR, listings, conversion' })
   async platformAnalytics() {
@@ -436,6 +641,24 @@ export class PlatformAdminController {
     });
     const inquiryCount = await this.marketplacePrisma.inquiry.count();
     const offerCount = await this.marketplacePrisma.saleOffer.count();
+
+    // §23 promotion revenue — only actually-paid promotions count.
+    const paidPromotions = await this.marketplacePrisma.listingPromotion.findMany({
+      where: { status: { in: ['ACTIVE', 'EXPIRED'] } },
+      select: { type: true, amountBdt: true, paidAt: true },
+    });
+    const promoByType = new Map<string, { count: number; amountBdt: number }>();
+    const promoByMonth = new Map<string, number>();
+    let promoRevenueBdt = 0;
+    for (const p of paidPromotions) {
+      promoRevenueBdt += p.amountBdt;
+      const t = promoByType.get(p.type) ?? { count: 0, amountBdt: 0 };
+      promoByType.set(p.type, { count: t.count + 1, amountBdt: t.amountBdt + p.amountBdt });
+      if (p.paidAt) {
+        const month = p.paidAt.toISOString().slice(0, 7);
+        promoByMonth.set(month, (promoByMonth.get(month) ?? 0) + p.amountBdt);
+      }
+    }
 
     const activeOrgs = orgs.filter((o) => o.status === 'ACTIVE').length;
     const mrr = orgs.reduce((sum, o) => {
@@ -465,6 +688,174 @@ export class PlatformAdminController {
           inquiryCount > 0 ? Number(((offerCount / inquiryCount) * 100).toFixed(1)) : 0,
       },
       activePlans: plans.map((p) => ({ tier: p.tier, name: p.name, monthlyPriceBdt: p.monthlyPriceBdt })),
+      promotions: {
+        paidCount: paidPromotions.length,
+        revenueBdt: Math.round(promoRevenueBdt * 100) / 100,
+        byType: Object.fromEntries(promoByType),
+        byMonth: Object.fromEntries([...promoByMonth.entries()].sort()),
+      },
+      // § Weeks 34–35 platform analytics
+      subscriptionConversion: {
+        totalOrgs: orgs.length,
+        paidTierOrgs: activeOrgs,
+        percent:
+          orgs.length > 0
+            ? Number(((activeOrgs / orgs.length) * 100).toFixed(1))
+            : 0,
+      },
+    };
+  }
+
+  /**
+   * § Weeks 34–35 Marketplace analytics — listing volume & type trends,
+   * area demand (inquiries + search pressure), price ranges, search
+   * activity. All read-only aggregations over the central projection.
+   */
+  @Get('analytics/marketplace')
+  @ApiOperation({ summary: 'Marketplace analytics — volume, trends, area demand, ranges, search activity' })
+  async marketplaceAnalytics() {
+    const listings = await this.marketplacePrisma.propertyListing.findMany({
+      select: {
+        purpose: true, assetType: true, price: true, area: true,
+        createdAt: true, status: true,
+      },
+    });
+
+    const monthKey = (d: Date) => d.toISOString().slice(0, 7);
+    const volumeByMonth = new Map<string, number>();
+    const typeTrends = new Map<string, Map<string, number>>();
+    const ranges = new Map<string, { purpose: string; prices: number[] }>();
+    let active = 0;
+
+    for (const l of listings) {
+      if (l.status === 'ACTIVE' || l.status === 'RENTED' || l.status === 'SOLD') active++;
+      const mk = monthKey(l.createdAt);
+      volumeByMonth.set(mk, (volumeByMonth.get(mk) ?? 0) + 1);
+
+      const tKey = `${mk}|${l.assetType}`;
+      const byMonth =
+        typeTrends.get(l.assetType) ?? new Map<string, number>();
+      typeTrends.set(l.assetType, byMonth);
+      byMonth.set(mk, (byMonth.get(mk) ?? 0) + 1);
+
+      if (l.status === 'ACTIVE') {
+        const rKey = l.assetType;
+        const bucket = ranges.get(rKey) ?? { purpose: l.purpose, prices: [] };
+        bucket.prices.push(l.price);
+        ranges.set(rKey, bucket);
+      }
+    }
+
+    const percentile = (arr: number[], p: number) => {
+      if (!arr.length) return null;
+      const s = [...arr].sort((a, b) => a - b);
+      const idx = Math.min(s.length - 1, Math.floor((p / 100) * s.length));
+      return Math.round(s[idx]);
+    };
+
+    const priceRanges = [...ranges.entries()].map(([type, b]) => ({
+      assetType: type,
+      purpose: b.purpose,
+      count: b.prices.length,
+      min: percentile(b.prices, 0),
+      median: percentile(b.prices, 50),
+      max: percentile(b.prices, 100),
+    }));
+
+    const areaDemand = await this.marketplacePrisma.inquiry.groupBy({
+      by: ['listingId'],
+      _count: { _all: true },
+    });
+    void areaDemand; // inquiries→area requires join; computed via raw SQL below
+
+    const demandRows = await this.marketplacePrisma.$queryRaw<
+      Array<{ area: string | null; inquiries: bigint }>
+    >(Prisma.sql`
+      SELECT l."area", COUNT(i."id")::bigint AS inquiries
+      FROM "Inquiry" i JOIN "PropertyListing" l ON l."id" = i."listingId"
+      GROUP BY l."area" ORDER BY inquiries DESC LIMIT 10
+    `);
+
+    const searchPressure = await this.marketplacePrisma.$queryRaw<
+      Array<{ area: string | null; searches: bigint }>
+    >(Prisma.sql`
+      SELECT "area", COUNT(*)::bigint AS searches
+      FROM "SearchEvent"
+      WHERE "createdAt" > now() - interval '30 days' AND "area" IS NOT NULL
+      GROUP BY "area" ORDER BY searches DESC LIMIT 10
+    `);
+
+    const searchWeekly = await this.marketplacePrisma.$queryRaw<
+      Array<{ week: string; count: bigint }>
+    >(Prisma.sql`
+      SELECT to_char(date_trunc('week', "createdAt"), 'YYYY-MM-DD') AS week,
+             COUNT(*)::bigint AS count
+      FROM "SearchEvent"
+      WHERE "createdAt" > now() - interval '8 weeks'
+      GROUP BY 1 ORDER BY 1
+    `);
+
+    const trendOut: Record<string, Record<string, number>> = {};
+    for (const [type, byMonth] of typeTrends) {
+      trendOut[type] = Object.fromEntries([...byMonth.entries()].sort());
+    }
+
+    return {
+      totals: { all: listings.length, activeOrTransacted: active },
+      listingVolumeByMonth: Object.fromEntries([...volumeByMonth.entries()].sort()),
+      propertyTypeTrends: trendOut,
+      priceRanges,
+      areaDemand: demandRows.map((r) => ({
+        area: r.area ?? 'unknown',
+        inquiries: Number(r.inquiries),
+      })),
+      searchActivity: {
+        topAreasLast30d: searchPressure.map((r) => ({
+          area: r.area ?? 'unknown',
+          searches: Number(r.searches),
+        })),
+        weekly: searchWeekly.map((r) => ({ week: r.week, count: Number(r.count) })),
+      },
+    };
+  }
+
+  /** § Weeks 34–35 growth/churn snapshot for the control plane. */
+  @Get('analytics/growth')
+  @ApiOperation({ summary: 'Tenant DB growth + subscription churn snapshot' })
+  async growthAnalytics() {
+    const dbs = await this.controlPlane.tenantDatabase.findMany({
+      select: { createdAt: true, status: true },
+    });
+    const byMonth = new Map<string, number>();
+    for (const db of dbs) {
+      const mk = db.createdAt.toISOString().slice(0, 7);
+      byMonth.set(mk, (byMonth.get(mk) ?? 0) + 1);
+    }
+
+    const cutoff = new Date(Date.now() - 30 * 86_400_000);
+    const [cancelledLast30d, activeCount] = await Promise.all([
+      this.controlPlane.subscriptionEvent.count({
+        where: { eventType: 'CANCELLED', createdAt: { gte: cutoff } },
+      }),
+      this.controlPlane.subscription.count({ where: { status: 'ACTIVE' } }),
+    ]);
+
+    return {
+      tenantDbGrowthByMonth: Object.fromEntries([...byMonth.entries()].sort()),
+      tenantDbsTotal: dbs.length,
+      churn: {
+        cancelledLast30d,
+        activeSubscriptions: activeCount,
+        churnRatePercent:
+          activeCount + cancelledLast30d > 0
+            ? Number(
+                (
+                  (cancelledLast30d / (activeCount + cancelledLast30d)) *
+                  100
+                ).toFixed(1),
+              )
+            : 0,
+      },
     };
   }
 

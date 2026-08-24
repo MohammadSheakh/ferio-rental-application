@@ -277,6 +277,13 @@ export class CreateUtilityAccountDto {
   @IsOptional()
   unitId?: string;
 
+  @ApiPropertyOptional({
+    description: 'Property ID — required for BUILDING/COMMON_AREA scope (allocation anchor)',
+  })
+  @IsString()
+  @IsOptional()
+  propertyId?: string;
+
   @ApiProperty({ enum: UtilityScope, example: 'UNIT' })
   @IsEnum(UtilityScope)
   scope!: UtilityScope;

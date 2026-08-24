@@ -15,6 +15,7 @@ import {
   ListingAssetType,
   SellerType,
   DocumentVisibility,
+  RoomType,
 } from '@prisma/marketplace-client';
 
 export class CreateListingDto {
@@ -259,6 +260,66 @@ export class AddListingDocumentDto {
   @IsEnum(DocumentVisibility)
   @IsOptional()
   visibility?: DocumentVisibility;
+}
+
+export class AddListingRoomDto {
+  @ApiProperty({ description: 'Room name', example: 'Master Bedroom' })
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+
+  @ApiPropertyOptional({ enum: RoomType, example: 'MASTER_BEDROOM' })
+  @IsEnum(RoomType)
+  @IsOptional()
+  type?: RoomType;
+
+  @ApiPropertyOptional({
+    description: 'Room length in feet',
+    example: 14,
+  })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  lengthFt?: number;
+
+  @ApiPropertyOptional({
+    description: 'Room width in feet',
+    example: 12,
+  })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  widthFt?: number;
+
+  @ApiPropertyOptional({
+    description: 'Room-specific description',
+    example: 'Attached bath, south-facing windows',
+  })
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @ApiPropertyOptional({ description: 'Display order', example: 1 })
+  @IsNumber()
+  @IsOptional()
+  sortOrder?: number;
+
+  @ApiPropertyOptional({
+    description: 'Photo URL registrations for this room',
+    type: [Object],
+  })
+  @IsArray()
+  @IsOptional()
+  media?: Array<{ url: string; caption?: string }>;
+}
+
+export class UpdateListingRoomDto {
+  @ApiPropertyOptional() @IsString() @IsOptional() name?: string;
+  @ApiPropertyOptional({ enum: RoomType }) @IsEnum(RoomType) @IsOptional() type?: RoomType;
+  @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() lengthFt?: number;
+  @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() widthFt?: number;
+  @ApiPropertyOptional() @IsString() @IsOptional() description?: string;
+  @ApiPropertyOptional() @IsNumber() @IsOptional() sortOrder?: number;
 }
 
 export class SearchListingsDto {

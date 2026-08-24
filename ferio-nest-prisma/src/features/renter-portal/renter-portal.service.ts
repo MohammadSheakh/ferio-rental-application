@@ -6,7 +6,8 @@ import {
 import { ControlPlanePrismaService } from '../../infrastructure/control-plane/control-plane-prisma.service';
 import { TenantDatabaseManager } from '../../infrastructure/tenant/tenant-database.manager';
 import { TenantBillingService } from '../tenant-operations/tenant-billing.service';
-import { PaymentMethod, InvoiceStatus, LeaseStatus } from '@prisma/tenant-client';
+import { BadRequestException } from '@nestjs/common';
+import { PaymentMethod, InvoiceStatus, LeaseStatus, MaintenanceStatus } from '@prisma/tenant-client';
 
 /**
  * Renter Portal Service (§ Week 28)
@@ -188,6 +189,85 @@ export class RenterPortalService {
     }).catch(() => {});
 
     return request;
+  }
+
+  /**
+   * § Weeks 20–21 renter confirmation — the occupant accepts the
+   * completed work: RESOLVED → CONFIRMED.
+   */
+  async confirmMaintenance(centralUserId: string, requestId: string) {
+    const { db, lease } = await this.locate(centralUserId);
+
+    const ticket = await db.maintenanceRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!ticket || ticket.unitId !== lease.unitId) {
+      throw new NotFoundException('Maintenance ticket not found');
+    }
+    if (ticket.status !== 'RESOLVED') {
+      throw new ForbiddenException(
+        `Only RESOLVED tickets can be confirmed (current: ${ticket.status})`,
+      );
+    }
+
+    const updated = await db.maintenanceRequest.update({
+      where: { id: requestId },
+      data: { status: 'CONFIRMED', renterConfirmedAt: new Date() },
+    });
+
+    await db.tenantAuditEvent.create({
+      data: {
+        actorId: centralUserId,
+        action: 'maintenance.renter_confirmed',
+        resourceType: 'MaintenanceRequest',
+        resourceId: requestId,
+        metadata: { unitId: lease.unitId } as any,
+      },
+    }).catch(() => {});
+
+    return updated;
+  }
+
+  /**
+   * § Weeks 20–21 reopen — the occupant rejects the completed work:
+   * RESOLVED → REOPENED (+reopenCount), back into the staff queue.
+   */
+  async rejectMaintenance(centralUserId: string, requestId: string, reason: string) {
+    if (!reason?.trim()) throw new BadRequestException('A rejection reason is required');
+    const { db, lease } = await this.locate(centralUserId);
+
+    const ticket = await db.maintenanceRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!ticket || ticket.unitId !== lease.unitId) {
+      throw new NotFoundException('Maintenance ticket not found');
+    }
+    if (ticket.status !== 'RESOLVED') {
+      throw new ForbiddenException(
+        `Only RESOLVED tickets can be reopened (current: ${ticket.status})`,
+      );
+    }
+
+    const updated = await db.maintenanceRequest.update({
+      where: { id: requestId },
+      data: {
+        status: 'REOPENED',
+        reopenCount: { increment: 1 },
+        description: `${ticket.description ?? ''}\n[Reopened by renter] ${reason.trim()}`.trim(),
+      },
+    });
+
+    await db.tenantAuditEvent.create({
+      data: {
+        actorId: centralUserId,
+        action: 'maintenance.renter_reopened',
+        resourceType: 'MaintenanceRequest',
+        resourceId: requestId,
+        metadata: { reason: reason.trim() } as any,
+      },
+    }).catch(() => {});
+
+    return updated;
   }
 
   /** Notices visible to this tenancy: org-wide + unit-targeted. */

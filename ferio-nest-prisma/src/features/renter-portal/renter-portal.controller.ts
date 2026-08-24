@@ -4,6 +4,7 @@ import {
   Post,
   UseGuards,
   Body,
+  Param,
   BadRequestException,
   HttpCode,
   HttpStatus,
@@ -87,6 +88,28 @@ export class RenterPortalController {
   ) {
     if (!body?.title?.trim()) throw new BadRequestException('title is required');
     return this.portal.createMaintenance(this.require(identity), body);
+  }
+
+  @Post('maintenance/:id/confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '§ Weeks 20–21: renter accepts the completed work (RESOLVED → CONFIRMED)' })
+  async confirmMaintenance(
+    @Identity() identity: IdentityType | null,
+    @Param('id') id: string,
+  ) {
+    return this.portal.confirmMaintenance(this.require(identity), id);
+  }
+
+  @Post('maintenance/:id/reopen')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Renter rejects the completed work → REOPENED with reason' })
+  async reopenMaintenance(
+    @Identity() identity: IdentityType | null,
+    @Param('id') id: string,
+    @Body() body: { reason: string },
+  ) {
+    if (!body?.reason?.trim()) throw new BadRequestException('reason is required');
+    return this.portal.rejectMaintenance(this.require(identity), id, body.reason);
   }
 
   @Get('notices')

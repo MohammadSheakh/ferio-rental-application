@@ -1670,3 +1670,112 @@ I would choose **database-per-tenant** for your design if your priorities are st
 So the architecture needs a proper **control plane + tenant provisioning service + migration orchestrator**, not simply dynamic Prisma URLs scattered through request handlers.
 
 This clarification materially changes the PRD again: the product should explicitly specify **Control Plane, Marketplace Plane, and Tenant Data Plane** as three separate architectural layers.
+
+---
+
+# 26. Paid listing promotions — advertisers pay Ferio for priority
+
+Free ads stay free forever. But an advertiser who wants more visibility can **pay Ferio directly** to boost an advertisement. This is revenue stream #2 and it is completely separate from SaaS subscriptions and from rent (see §11 / money-flow separation):
+
+```text
+Advertiser ──── promotion fee ────→ FERIO
+```
+
+## Promotion products
+
+```text
+FEATURED
+─────
+Listing pinned above free results
+"Featured" badge on card + map chip
+Highlighted card treatment
+
+URGENT
+──────
+"Urgent" badge (moving-out / last-date urgency)
+Slight rank lift within normal results
+
+TOP_SEARCH (Homepage Spotlight)
+──────────────────────────────
+Eligible for homepage hero/spotlight slot
+Highest search rank weight
+```
+
+## What paying buys (extra functionality, not just placement)
+
+```text
+Priority ranking        → promoted listings appear above free ones
+Badge + styling         → visible trust/urgency marker on cards & markers
+Promotion window        → fixed duration (e.g. 7 / 15 / 30 days), auto-expiry
+Performance stats       → inquiry count during promotion period
+Manageable lifecycle    → purchase → pay → active → expire/renew/cancel
+Platform control        → admin can view, revoke, refund-flag, set pricing
+```
+
+## Purchase lifecycle
+
+```text
+Advertiser picks promotion on own listing
+      ↓
+Promotion order created (PENDING_PAYMENT)
+      ↓
+Pay via bKash/Nagad/bank (manual confirmation initially)
+      ↓
+ACTIVE — listing gets badge + rank boost from startsAt to expiresAt
+      ↓
+Auto-expiry scan flips EXPIRED and removes badge/rank
+```
+
+Rules:
+
+```text
+Only the listing owner can promote their own listing
+One ACTIVE promotion per type per listing (renew extends expiry)
+Expired ≠ deleted — history retained for reporting/audit
+Moderation still applies — PENDING_REVIEW/REJECTED listings cannot be promoted
+Money recorded in the MARKETPLACE plane ledger — never merged with rent
+```
+
+---
+
+# 27. Rich unit detail — room-by-room, feet by feet
+
+When someone adds a unit so renters can find it, a single "2 bed / 2 bath" summary is not enough. Each unit should be described **room by room**, with per-room photos, dimensions and descriptions:
+
+```text
+Unit 4B — 1,250 sqft
+│
+├── Master Bedroom     14'0" × 12'0"   attached bath, 2 photos
+├── Bedroom 2          11'0" × 10'6"   balcony access, 3 photos
+├── Living / Dining    18'0" × 13'0"   south-facing, 4 photos
+├── Kitchen             9'0" ×  8'0"   fitted cabinets, gas line, 2 photos
+├── Bathroom (common)   7'6" ×  5'0"   geyser installed, 1 photo
+└── Balcony             6'0" ×  4'0"   city view, 1 photo
+```
+
+So the domain gains:
+
+```text
+UnitRoom            name, type, lengthFt, widthFt, description, sortOrder
+UnitRoomMedia       photo URLs registered against a specific room
+```
+
+Room types:
+
+```text
+BEDROOM · MASTER_BEDROOM · BATHROOM · KITCHEN · LIVING_ROOM
+DINING_ROOM · BALCONY · SERVANT_ROOM · STORAGE · GARAGE · OTHER
+```
+
+This detail must survive the cross-plane publish:
+
+```text
+Tenant DB Unit
+   └── UnitRooms (+ media)
+          ↓ publish (outbox projection)
+Marketplace Listing carries rooms[]
+          ↓
+Public detail page renders room-by-room gallery w/ dimensions
+```
+
+Renters get real information ("is my king bed fitting that bedroom?", "how big is the kitchen?") without contacting anyone — which increases qualified inquiries and reduces wasted viewings. Free-advertisers' marketplace listings get the same room-by-room structure, so every ad on Ferio is rich, not only SaaS-published units.

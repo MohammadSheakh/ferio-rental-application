@@ -30,6 +30,42 @@ const DOMAIN_WRITE_ROLES: Record<string, MemberRole[]> = {
 };
 
 /**
+ * § Week 9 delegation check — does this member hold an active,
+ * unexpired, non-revoked delegation covering the domain from a member
+ * who still holds the domain themselves?
+ */
+export async function hasActiveDelegation(
+  db: {
+    memberDelegation: {
+      findFirst(args: any): Promise<{ fromMemberId: string } | null>;
+    };
+  },
+  memberId: string,
+  domain: string,
+): Promise<boolean> {
+  const row = await db.memberDelegation.findFirst({
+    where: {
+      toMemberId: memberId,
+      domains: { has: domain },
+      revokedAt: null,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+    },
+    include: { fromMember: { select: { role: true, status: true } } } as any,
+  });
+  if (!row) return false;
+  const from = (row as any).fromMember as
+    | { role: MemberRole; status: string }
+    | undefined;
+  if (!from || from.status !== 'ACTIVE') return false;
+  return (DOMAIN_WRITE_ROLES[domain] ?? []).includes(from.role);
+}
+
+/** True when the caller may write within `domain` — role OR delegation. */
+export function roleMayWrite(memberRole: MemberRole, domain: string): boolean {
+  return (DOMAIN_WRITE_ROLES[domain] ?? []).includes(memberRole);
+}
+
+/**
  * Route-level write-domain requirement. Read access is granted to any
  * ACTIVE member; writes additionally require the mapped role set.
  */
@@ -47,9 +83,12 @@ export const RequireMemberDomain = (domain: keyof typeof DOMAIN_WRITE_ROLES | 'n
  */
 @Injectable()
 export class DomainWriteGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly tenantDbManager: TenantDatabaseManager,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
     const member: Member | undefined = req.member;
     if (!member) {
@@ -62,13 +101,19 @@ export class DomainWriteGuard implements CanActivate {
     );
     if (!domain || domain === 'none') return true;
 
-    // GETs are member-readable; writes enforce the domain roles.
+    // GETs are member-readable; writes enforce the domain roles
+    // (+ § Week 9 active delegations).
     if (req.method.toUpperCase() !== 'GET') {
-      const allowed = DOMAIN_WRITE_ROLES[domain];
-      if (!allowed?.includes(member.role)) {
-        throw new ForbiddenException(
-          `${member.role.replaceAll('_', ' ').toLowerCase()} cannot perform ${domain} actions`,
-        );
+      if (!roleMayWrite(member.role, domain)) {
+        const organizationId = req.tenantContext?.organizationId;
+        if (!organizationId) throw new ForbiddenException('Missing tenant context');
+        const db = await this.tenantDbManager.getTenantDatabase(organizationId);
+        const delegated = await hasActiveDelegation(db, member.id, domain);
+        if (!delegated) {
+          throw new ForbiddenException(
+            `${member.role.replaceAll('_', ' ').toLowerCase()} cannot perform ${domain} actions`,
+          );
+        }
       }
     }
     return true;
@@ -110,11 +155,13 @@ export class ActiveMemberGuard implements CanActivate {
         [context.getHandler(), context.getClass()],
       );
       if (domain && domain !== 'none') {
-        const allowed = DOMAIN_WRITE_ROLES[domain];
-        if (!allowed?.includes(member.role)) {
-          throw new ForbiddenException(
-            `${member.role.replaceAll('_', ' ').toLowerCase()} cannot perform ${domain} actions`,
-          );
+        if (!roleMayWrite(member.role, domain)) {
+          const delegated = await hasActiveDelegation(db, member.id, domain);
+          if (!delegated) {
+            throw new ForbiddenException(
+              `${member.role.replaceAll('_', ' ').toLowerCase()} cannot perform ${domain} actions`,
+            );
+          }
         }
       }
     }

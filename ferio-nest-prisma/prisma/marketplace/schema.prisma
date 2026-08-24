@@ -97,6 +97,36 @@ enum DocumentVisibility {
   ADMIN_ONLY
 }
 
+/// §23 Paid Listing Promotions — Advertiser → Ferio revenue stream.
+enum PromotionType {
+  FEATURED
+  URGENT
+  TOP_SEARCH
+}
+
+enum PromotionStatus {
+  PENDING_PAYMENT
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+/// §24 Rich Unit Detail — room-by-room breakdown projected from a
+/// managed unit (or entered directly on free-advertiser listings).
+enum RoomType {
+  BEDROOM
+  MASTER_BEDROOM
+  BATHROOM
+  KITCHEN
+  LIVING_ROOM
+  DINING_ROOM
+  BALCONY
+  SERVANT_ROOM
+  STORAGE
+  GARAGE
+  OTHER
+}
+
 // ──────────────────────────────────────────────────────────────
 // MODELS
 // ──────────────────────────────────────────────────────────────
@@ -186,6 +216,14 @@ model PropertyListing {
   sourceOrganizationId String?
   sourceUnitId         String?
 
+  // ── §23 Paid promotion state (denormalized for search ranking) ──
+  /// Highest ACTIVE promotion tier: URGENT=1, FEATURED=2, TOP_SEARCH=3.
+  promotionTier   Int       @default(0)
+  /// Badge labels derived from ACTIVE promotions (["FEATURED", …]).
+  promotionBadges String[]  @default([])
+  /// Latest expiry among ACTIVE promotions — ranking ignores rows past it.
+  promotedUntil   DateTime?
+
   // ── Moderation state ──
   rejectionReason String?
 
@@ -204,6 +242,8 @@ model PropertyListing {
   viewings  ViewingRequest[]
   moderationDecisions ModerationDecision[]
   saleOffers SaleOffer[]
+  promotions ListingPromotion[]
+  rooms      ListingRoom[]
 
   @@index([purpose, status])
   @@index([assetType, status])
@@ -361,4 +401,89 @@ model ModerationDecision {
   listing PropertyListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
   @@index([listingId])
+}
+
+/// §23 Paid Listing Promotion — an Advertiser→Ferio purchase that boosts
+/// one listing for a fixed window. This ledger is separate from rent and
+/// from SaaS subscription billing (§11 money-flow separation).
+model ListingPromotion {
+  id        String          @id @default(cuid())
+  listingId String
+  type      PromotionType
+  status    PromotionStatus @default(PENDING_PAYMENT)
+
+  amountBdt     Float
+  durationDays  Int
+  startsAt      DateTime?
+  expiresAt     DateTime?
+
+  /// BKASH | NAGAD | BANK — recorded by platform staff at confirmation.
+  paidVia          String?
+  paymentReference String?
+  paidAt           DateTime?
+  /// Platform staff (control-plane user id) who confirmed/cancelled.
+  decidedBy        String?
+  cancelReason     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  listing PropertyListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+/// §24 Room-by-room breakdown on a public listing. Projected from the
+/// tenant DB's UnitRoom rows on publish, or entered directly by
+/// free-advertiser sellers.
+model ListingRoom {
+  id          String   @id @default(cuid())
+  listingId   String
+  name        String
+  type        RoomType @default(OTHER)
+  lengthFt    Float?
+  widthFt     Float?
+  description String?
+  sortOrder   Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  listing PropertyListing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  media   ListingRoomMedia[]
+
+  @@index([listingId])
+}
+
+/// § Weeks 34–35 search activity — captured best-effort on every
+/// public search / map query for demand analytics.
+model SearchEvent {
+  id          String   @id @default(cuid())
+  kind        String   @default("SEARCH") /// SEARCH | MAP
+  purpose     String?
+  assetType   String?
+  area        String?
+  resultCount Int      @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([area])
+}
+
+/// Photo URL registrations scoped to a specific room of a listing.
+model ListingRoomMedia {
+  id        String @id @default(cuid())
+  roomId    String
+  url       String
+  caption   String?
+  sortOrder Int    @default(0)
+
+  createdAt DateTime @default(now())
+
+  room ListingRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
 }
