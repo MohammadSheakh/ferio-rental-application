@@ -145,19 +145,68 @@ async function bootstrap() {
 
   // ────────────────────────────────────────────────────────────────────────
   // Local Storage Driver — serve uploaded files at /uploads (§13)
-  // Only relevant when STORAGE_DRIVER=local (development/scratch).
+  //
+  // P0 hardening: `images/` keys stay public (listing photos are public
+  // content). Everything else — documents/, backups/, room media — is
+  // PRIVATE and requires a Bearer token:
+  //   • backups/<key>            → platform staff only (realm claim check)
+  //   • everything non-images/   → any valid central-identity JWT
+  // S3 driver equivalents are enforced at the bucket/presign layer.
   // ────────────────────────────────────────────────────────────────────────
 
   if (process.env.STORAGE_DRIVER !== 's3') {
     const express = require('express');
     const path = require('path');
+    const { join } = require('path');
+    const jwt = require('jsonwebtoken');
     const localDir =
       process.env.STORAGE_LOCAL_DIR ?? path.join(process.cwd(), 'storage-uploads');
-    app.getHttpAdapter().getInstance().use(
-      '/uploads',
-      express.static(localDir, { fallthrough: false, maxAge: '30d' }),
-    );
-    logger.log(`💾 Serving local uploads from ${localDir} at /uploads`);
+    const secret = () => process.env.JWT_ACCESS_SECRET || 'dev-secret';
+
+    app.getHttpAdapter().getInstance().use('/uploads', (req: any, res: any, next: any) => {
+      const key = decodeURIComponent(String(req.path || '')).replace(/^\/+/, '');
+
+      // Public prefix: listing photos / room photos / promo creatives.
+      if (key.startsWith('images/') && req.method === 'GET') {
+        return express.static(localDir, { maxAge: '30d' })(req, res, next);
+      }
+
+      if (req.method !== 'GET') {
+        return res.status(405).json({ message: 'Method not allowed' });
+      }
+
+      // Authenticated fetch required for documents/backups/everything else.
+      const auth = String(req.headers.authorization ?? '');
+      const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+      if (!token) {
+        return res.status(401).json({ message: 'Authentication required for this file' });
+      }
+      try {
+        const payload = jwt.verify(token, secret()) as any;
+        if (key.startsWith('backups/') && payload.realm !== 'platform') {
+          return res.status(403).json({ message: 'Platform staff only' });
+        }
+        res.setHeader('Cache-Control', 'private, no-store');
+        return res.sendFile(join(localDir, ...key.split('/')), (err: any) => {
+          if (err) res.status(404).end();
+        });
+      } catch {
+        return res.status(401).json({ message: 'Invalid or expired token' });
+      }
+    });
+    logger.log('💾 Serving local uploads from /uploads (auth-gated; images/ public)');
+  }
+
+  // ── P0 boot guard: production must never run the mock payment driver ──
+  const gatewayDriver = process.env.PAYMENT_GATEWAY_DRIVER || 'mock';
+  const isProd = process.env.NODE_ENV === 'production';
+  if (isProd) {
+    if (gatewayDriver === 'mock') {
+      logger.error('🛑 BOOT REFUSED: PAYMENT_GATEWAY_DRIVER=mock in production.');
+      logger.error('   Set it to bkash|sslcommerz|aamarpay|shurjopay with credentials.');
+      process.exit(1);
+    }
+    logger.log('💳 Payment driver (production):', gatewayDriver);
   }
 
   // ────────────────────────────────────────────────────────────────────────

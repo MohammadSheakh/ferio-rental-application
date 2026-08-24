@@ -37,7 +37,7 @@ function priceFor(type: PromotionType, days: number): number {
   return table[type][days];
 }
 
-const PAID_VIA = ['BKASH', 'NAGAD', 'BANK'] as const;
+const PAID_VIA = ['BKASH', 'NAGAD', 'BANK', 'GATEWAY'] as const;
 
 /**
  * §23 Paid Listing Promotions — Advertiser → Ferio revenue stream.
@@ -110,15 +110,27 @@ export class PromotionService {
     }
 
     const amountBdt = priceFor(dto.type, dto.durationDays);
-    const promo = await this.marketplacePrisma.listingPromotion.create({
-      data: {
-        listingId,
-        type: dto.type,
-        status: PromotionStatus.PENDING_PAYMENT,
-        amountBdt,
-        durationDays: dto.durationDays,
-      },
-    });
+    // § P0 race guard: the partial unique index (listingId,type) WHERE
+    // live rejects concurrent double-orders at the database level.
+    let promo;
+    try {
+      promo = await this.marketplacePrisma.listingPromotion.create({
+        data: {
+          listingId,
+          type: dto.type,
+          status: PromotionStatus.PENDING_PAYMENT,
+          amountBdt,
+          durationDays: dto.durationDays,
+        },
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new BadRequestException(
+          `A live ${dto.type} promotion already exists for this listing (concurrent order lost the race)`,
+        );
+      }
+      throw err;
+    }
 
     await this.audit(
       'marketplace.promotion.ordered',

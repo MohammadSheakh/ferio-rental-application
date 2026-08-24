@@ -9,6 +9,7 @@ import { Client } from 'pg';
 import { Pool } from 'pg';
 import { spawnSync } from 'child_process';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { resolveTenantPassword } from '../../infrastructure/tenant/tenant-credentials';
 import {
   PrismaClient as TenantPrismaClient,
   MemberRole,
@@ -591,9 +592,7 @@ export class ProvisioningService {
   private tenantUrl(databaseName: string): string {
     // Canonical: TENANT_DB_PASSWORD (TENANT_DB_DEFAULT_PASSWORD kept as legacy alias)
     const password =
-      process.env.TENANT_DB_PASSWORD ||
-      process.env.TENANT_DB_DEFAULT_PASSWORD ||
-      'postgres';
+      resolveTenantPassword(null);
     const host = process.env.TENANT_DB_HOST || 'localhost';
     const port = process.env.TENANT_DB_PORT || '5432';
     const username = process.env.TENANT_DB_USERNAME || 'postgres';

@@ -4,7 +4,7 @@ import {
 } from '../control-plane/control-plane-prisma.service';
 import { PlatformInvoiceStatus } from '@prisma/control-client';
 
-const PAID_VIA = ['BKASH', 'NAGAD', 'BANK'] as const;
+const PAID_VIA = ['BKASH', 'NAGAD', 'BANK', 'GATEWAY'] as const;
 
 /**
  * § Week 27 Platform Billing — Organization → Ferio subscription fees.

@@ -18,6 +18,7 @@ import { ApiKeyService } from './api-external/api-key.service';
 import { ExternalApiController } from './api-external/external-api.controller';
 import { DomainVerificationService } from './domains/domain-verification.service';
 import { TenantDbOpsService } from './tenant-db-ops/tenant-db-ops.service';
+import { PaymentsModule } from './payments/payments.module';
 
 /**
  * Ferio Platform Infrastructure Module
@@ -40,7 +41,7 @@ import { TenantDbOpsService } from './tenant-db-ops/tenant-db-ops.service';
  */
 @Global()
 @Module({
-  imports: [StorageModule, TenantOperationsModule],
+  imports: [StorageModule, TenantOperationsModule, PaymentsModule],
   providers: [
     ControlPlanePrismaService,
     MarketplacePrismaService,

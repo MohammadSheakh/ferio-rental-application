@@ -8,6 +8,8 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { createHmac, randomBytes } from 'crypto';
+import { Prisma } from '@prisma/tenant-client';
+
 import { TenantDatabaseManager } from '../../infrastructure/tenant/tenant-database.manager';
 import { ControlPlanePrismaService } from '../../infrastructure/control-plane/control-plane-prisma.service';
 
@@ -202,14 +204,37 @@ export class TenantWebhookService implements OnModuleInit, OnModuleDestroy {
     } catch {
       return;
     }
-    const due = await db.webhookDelivery.findMany({
-      where: { status: 'PENDING', nextAttemptAt: { lte: new Date() } },
-      include: { endpoint: { select: { url: true, secret: true, enabled: true } } },
-      take: 50,
-    });
+    // § P1 hardening: FOR UPDATE SKIP LOCKED so multiple API pods never
+    // claim the same delivery (duplicate webhooks under horizontal scale).
+    const due = await db.$queryRaw<Array<{
+      id: string; endpointId: string; event: string; payload: unknown;
+      attempts: number; maxAttempts: number;
+    }>>(
+      Prisma.sql`
+        SELECT d."id", d."endpointId", d."event", d.payload, d.attempts, d."maxAttempts"
+        FROM "WebhookDelivery" d
+        WHERE d.status = 'PENDING' AND d."nextAttemptAt" <= now()
+        ORDER BY d."nextAttemptAt"
+        LIMIT 50
+        FOR UPDATE OF d SKIP LOCKED
+      `,
+    );
+    const hydrated = await Promise.all(
+      due.map(async (row) => {
+        const full = await db.webhookDelivery.findUnique({
+          where: { id: row.id },
+          include: { endpoint: { select: { url: true, secret: true, enabled: true } } },
+        });
+        return full;
+      }),
+    );
+    const claims = hydrated.filter(Boolean) as NonNullable<typeof hydrated[number]>[];
 
-    for (const d of due) {
-      if (!d.endpoint.enabled) continue;
+    for (const d of claims) {
+      if (!d.endpoint.enabled) {
+        await db.webhookDelivery.update({ where: { id: d.id }, data: { nextAttemptAt: new Date(Date.now() + RETRY_BASE_MS) } }).catch(() => {});
+        continue;
+      }
       const body = JSON.stringify(d.payload);
       const signature = createHmac('sha256', d.endpoint.secret).update(body).digest('hex');
       let okCode: number | null = null;

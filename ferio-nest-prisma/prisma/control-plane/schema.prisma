@@ -475,3 +475,26 @@ model TenantBackup {
 
   @@index([organizationId])
 }
+
+/// § Week 27 gateway integration — one online payment attempt against a
+/// payable Ferio object (platform invoice, listing promotion). Driver-
+/// agnostic: bkash | sslcommerz | aamarpay | shurjopay | mock.
+model PaymentIntent {
+  id             String    @id @default(cuid())
+  context        String    /// PLATFORM_INVOICE | LISTING_PROMOTION
+  refId          String    /// PlatformInvoice.id | ListingPromotion.id
+  organizationId String?
+  gateway        String
+  gatewayRef     String?   /// tran_id / paymentID returned by the gateway
+  amountBdt      Float
+  status         String    @default("PENDING") /// PENDING | PAID | FAILED | CANCELLED
+  payerUserId    String?
+  failureReason  String?
+  fulfilledAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([refId])
+  @@index([status])
+}

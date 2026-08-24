@@ -1,0 +1,116 @@
+# ──────────────────────────────────────────────────────────────
+# Ferio Property Platform — Docker Compose
+#
+# Infrastructure only (development):
+#   docker compose up -d
+#
+# Full stack (all apps containerized):
+#   docker compose --profile full up -d --build
+#
+# Stop everything:
+#   docker compose --profile full down
+# ──────────────────────────────────────────────────────────────
+
+services:
+  # ── Infrastructure (always starts) ──────────────────────────
+
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: ferio-pg
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ferio_control
+    ports:
+      - "5432:5432"
+    volumes:
+      - ferio_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ferio-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ferio_redis_data:/data
+
+  # ── Backend API ────────────────────────────────────────────
+
+  api:
+    build:
+      context: ./ferio-nest-prisma
+    container_name: ferio-api
+    profiles: ["full"]
+    environment:
+      NODE_ENV: production
+      PORT: 6733
+      SOCKET_PORT: 6734
+      CONTROL_PLANE_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ferio_control
+      MARKETPLACE_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ferio_marketplace
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ferio_marketplace
+      TENANT_DB_HOST: postgres
+      TENANT_DB_PORT: "5432"
+      TENANT_DB_USERNAME: postgres
+      TENANT_DB_PASSWORD: postgres
+      TENANT_DB_DEFAULT_PASSWORD: postgres
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-in-production-access}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-in-production-refresh}
+      PAYMENT_GATEWAY_DRIVER: ${PAYMENT_GATEWAY_DRIVER:-sslcommerz}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      SCHEDULER_DISABLED: "false"
+      DOMAIN_DNS_MODE: dns
+    ports:
+      - "6733:6733"
+      - "6734:6734"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - storage_data:/app/storage-uploads
+
+  # ── Frontend Applications ──────────────────────────────────
+
+  marketplace-web:
+    build:
+      context: ./ferio-marketplace-web
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:6733/api/v1
+    container_name: ferio-marketplace-web
+    profiles: ["full"]
+    ports:
+      - "3001:3000"
+    depends_on:
+      - api
+
+  saas-web:
+    build:
+      context: ./ferio-saas-web
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:6733/api/v1
+    container_name: ferio-saas-web
+    profiles: ["full"]
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+  admin-web:
+    build:
+      context: ./ferio-admin-web
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:6733/api/v1
+    container_name: ferio-admin-web
+    profiles: ["full"]
+    ports:
+      - "3002:3000"
+    depends_on:
+      - api
+
+volumes:
+  ferio_pg_data:
+  ferio_redis_data:
+  storage_data:

@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { resolveTenantPassword } from '../../infrastructure/tenant/tenant-credentials';
 import { Client } from 'pg';
 import { spawnSync } from 'child_process';
 import { ControlPlanePrismaService } from '../control-plane/control-plane-prisma.service';
@@ -294,9 +295,7 @@ export class TenantMigrationOrchestrator {
 
   private tenantUrl(databaseName: string): string {
     const password =
-      process.env.TENANT_DB_PASSWORD ||
-      process.env.TENANT_DB_DEFAULT_PASSWORD ||
-      'postgres';
+      resolveTenantPassword(null);
     const host = process.env.TENANT_DB_HOST || 'localhost';
     const port = process.env.TENANT_DB_PORT || '5432';
     const username = process.env.TENANT_DB_USERNAME || 'postgres';

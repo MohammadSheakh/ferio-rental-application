@@ -169,9 +169,12 @@ jobs:
       - name: Provision sheakh-fam workspace (PRO)
         working-directory: ferio-nest-prisma
         run: |
-          STAFF=$(curl -s -X POST http://localhost:6799/api/v1/identity/platform/login -H 'Content-Type: application/json' -d '{"email":"admin@ferio.test","password":"RootAdmin1!"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['token'])")
-          OWNER=$(curl -s http://localhost:6799/api/v1/identity/me -H "Authorization: Bearer $(curl -s -X POST http://localhost:6799/api/v1/identity/login -H 'Content-Type: application/json' -d '{"email":"owner@demo.test","password":"supersecret1"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['token'])") | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['userId'])")
-          curl -s -X POST http://localhost:6799/api/v1/platform/organizations -H "Authorization: Bearer $STAFF" -H 'Content-Type: application/json' -d "{\"name\":\"Sheakh Family Properties\",\"slug\":\"sheakh-fam\",\"planTier\":\"PRO\",\"ownerUserId\":\"$OWNER\"}" | head -c 200
+          set -e
+          TOKEN() { node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{console.log(JSON.parse(d).data.token)}catch(e){process.exit(1)}})"; }
+          STAFF=$(curl -s -X POST http://localhost:6799/api/v1/identity/platform/login -H 'Content-Type: application/json' -d '{"email":"admin@ferio.test","password":"RootAdmin1!"}' | TOKEN)
+          OWNER_TOKEN=$(curl -s -X POST http://localhost:6799/api/v1/identity/login -H 'Content-Type: application/json' -d '{"email":"owner@demo.test","password":"supersecret1"}' | TOKEN)
+          OWNER=$(curl -s http://localhost:6799/api/v1/identity/me -H "Authorization: Bearer $OWNER_TOKEN" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{console.log(JSON.parse(d).data.userId)})")
+          curl -sf -X POST http://localhost:6799/api/v1/platform/organizations -H "Authorization: Bearer $STAFF" -H 'Content-Type: application/json' -d "{"name":"Sheakh Family Properties","slug":"sheakh-fam","planTier":"PRO","ownerUserId":"$OWNER"}" > /dev/null
 
       - name: Run verify suites
         working-directory: ferio-nest-prisma

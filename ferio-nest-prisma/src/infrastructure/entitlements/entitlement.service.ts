@@ -33,6 +33,8 @@ export interface OrganizationEntitlements {
 /** Short-lived in-process cache — plan changes propagate within a minute. */
 interface CacheEntry {
   entitlements: OrganizationEntitlements;
+  /** § P1 freshness marker — org.updatedAt newer ⇒ entry is stale. */
+  cachedAt: Date;
   expiresAt: number;
 }
 
@@ -70,9 +72,20 @@ export class EntitlementService {
   async getOrganizationEntitlements(
     organizationId: string,
   ): Promise<OrganizationEntitlements> {
+    const cachedAt = new Date();
     const cached = this.cache.get(organizationId);
     if (cached && cached.expiresAt > Date.now()) {
-      return cached.entitlements;
+      // § P1 cross-instance freshness: if the org row changed after this
+      // entry was cached (e.g. suspension on another pod), refetch.
+      const stale = await this.controlPlane.saasOrganization
+        .findUnique({
+          where: { id: organizationId },
+          select: { updatedAt: true },
+        })
+        .then((o) => (o?.updatedAt ?? new Date(0)) > cached.cachedAt)
+        .catch(() => false);
+      if (!stale) return cached.entitlements;
+      this.cache.delete(organizationId);
     }
 
     const subscription = await this.controlPlane.subscription.findUnique({
@@ -106,7 +119,7 @@ export class EntitlementService {
         ...base,
         extras: this.extrasFrom(freePlan?.entitlements),
       };
-      return this.cacheAndReturn(organizationId, entitlements);
+      return this.cacheAndReturn(organizationId, entitlements, cachedAt);
     }
 
     base = {
@@ -235,9 +248,11 @@ export class EntitlementService {
   private cacheAndReturn(
     organizationId: string,
     e: OrganizationEntitlements,
+    cachedAt: Date = new Date(),
   ): OrganizationEntitlements {
     this.cache.set(organizationId, {
       entitlements: e,
+      cachedAt,
       expiresAt: Date.now() + EntitlementService.CACHE_TTL_MS,
     });
     return e;

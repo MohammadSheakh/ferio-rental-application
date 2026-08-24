@@ -8,6 +8,7 @@ import {
 import { Request, Response, NextFunction } from 'express';
 import { ControlPlanePrismaService } from '../control-plane/control-plane-prisma.service';
 import { TenantCacheService } from './tenant-cache.service';
+import { buildTenantUrl } from './tenant-credentials';
 
 /**
  * Tenant Context — attached to every request within the SaaS tenant plane
@@ -197,14 +198,9 @@ export class TenantResolverMiddleware implements NestMiddleware {
     username: string;
     databaseName: string;
     sslMode: string;
+    passwordRef?: string | null;
   }): string {
-    // In production, password would come from a secret manager.
-    // Canonical: TENANT_DB_PASSWORD (TENANT_DB_DEFAULT_PASSWORD kept as legacy alias)
-    const password =
-      process.env.TENANT_DB_PASSWORD ||
-      process.env.TENANT_DB_DEFAULT_PASSWORD ||
-      'postgres';
-    return `postgresql://${db.username}:${encodeURIComponent(password)}@${db.host}:${db.port}/${db.databaseName}?sslmode=${db.sslMode}`;
+    return buildTenantUrl(db);
   }
 
   /**

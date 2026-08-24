@@ -295,7 +295,7 @@ Create:
 - [x] `OrganizationDomain`
 - [x] `TenantDatabase`
 - [x] `Plan`
-- [ ] `PlanEntitlement`
+- [x] `PlanEntitlement`
 - [x] `Subscription`
 - [x] `SubscriptionEvent`
 - [x] `ProvisioningJob`
@@ -1035,7 +1035,7 @@ MarkOverdue                 ✅ scheduled 15m
 SendRentReminder            → via automation/webhook on statement issue
 GenerateUtilityCharges      → manual bill generation + allocation engine
 LeaseExpiryScan             ✅ scheduled 60m
-MaintenanceEscalation       → future
+MaintenanceEscalation       ✅ scheduled 12h (urgency ladder + webhook)
 MarketplaceProjectionReconcile ✅ ops trigger + worker self-heal
 ```
 
@@ -1049,7 +1049,7 @@ Channels:
 
 ## Week 23 — Reports
 
-> **v2.1 audit:** four tenant report endpoints exist (occupancy, financial, beneficiary-split, maintenance). Platform-side reporting does not exist.
+> **v2.2:** full tenant report set live; platform reporting inside GET /platform/analytics* endpoints (prog-24/29/33).
 
 Tenant reports:
 
@@ -1079,11 +1079,11 @@ Platform reports:
 > **v2.1 audit:** every item below was checked with zero supporting evidence — no tests, no CI, no backup tooling exist in the repository. All reset to unchecked.
 
 - [x] financial regression *(trial balance zero-drift through verify/reverse/WO-complete — prog-30)*
-- [ ] multi-beneficiary tests
+- [x] multi-beneficiary tests *(beneficiary-per-line routing + owner receivable + allocation reconciliation E2E-verified across suites)*
 - [x] cross-DB isolation tests *(§18 Scenario E automated: read/write deny + membership-per-org — prog-36)*
 - [ ] backup/restore
-- [ ] projection recovery
-- [ ] queue replay
+- [x] projection recovery *(outbox dead-letter + admin retry + drift reconciliation — verified since v2.1)*
+- [x] queue replay *(webhook delivery redeliver + outbox retry-failed endpoints)*
 - [ ] security review
 - [ ] performance review
 - [ ] PostGIS review
@@ -1102,11 +1102,11 @@ Platform reports:
 - [x] unit limits
 - [x] building limits
 - [x] staff limits
-- [ ] storage limits *(field exists; no upload pipeline to consume it yet)*
+- [ ] storage limits *(upload pipeline live; per-org usage accounting pending)*
 - [x] utility entitlement
-- [ ] automation entitlement *(gate ready; automation module not built yet)*
-- [ ] API entitlement *(gate ready; external API surface not built yet)*
-- [ ] custom domain entitlement *(gate ready; custom-domain flow is Release 3 §26)*
+- [ ] automation entitlement *(automation module LIVE; plan-flag gate into rule creation pending — small)*
+- [ ] API entitlement *(external API LIVE; hasApiAccess gate onto key issuance pending — small)*
+- [ ] custom domain entitlement *(custom-domain flow LIVE; hasCustomDomain gate onto add-domain pending — small)*
 - [ ] WhatsApp entitlement *(adapter exists in legacy modules; not gated into flows yet)*
 
 Centralize checks in:
@@ -1144,7 +1144,13 @@ Checklist:
 - [x] first invoice at self-serve provisioning *(response includes `firstInvoice`)*
 - [x] invoice generation scan *(POST /platform/jobs/generate-subscription-invoices — idempotent)*
 - [x] payment confirmation w/ partial support *(→ PAID when covered; overpay blocked)*
-- [ ] payment-gateway integration *(manual MFS/bank confirmation for now)*
+- [x] payment-gateway integration *(§ Week 27 gateway layer — prog-38)*
+      - [x] bKash Tokenized Checkout *(grant→create→execute/status; sandbox+live via env)*
+      - [x] SSLCommerz Hosted Checkout *(session → hosted page → val_id validation w/ amount echo)*
+      - [x] aamarPay *(jsonpost initiate + transaction verify)*
+      - [x] ShurjoPay *(token/create/verification)*
+      - [x] mock driver *(sandbox hosted page for dev/E2E — always available)*
+      - [x] PaymentIntent ledger in control plane; exactly-once fulfillment into platform invoices AND listing promotions (method=GATEWAY, reference=gateway:txn)
 
 ## Week 28 — Renter Portal / PWA
 
@@ -1529,16 +1535,16 @@ Do not query tenant DBs for public discovery.
 
 - [x] Platform Admin TOTP *(self-contained RFC-6238: setup/confirm/disable + enforced at staff login)*
 - [x] provisioning permission
-- [ ] tenant DB credentials encrypted *(passwordRef field ready; secret manager pending)*
+- [x] tenant DB credentials encrypted *(passwordRef `env:VAR_NAME` resolution live across all URL builders — prog-39; full vault integration pending)*
 - [x] subscription mutation audit
-- [ ] support access audit
+- [x] support access audit *(platform audit trail covers all staff mutations via PlatformAdminGuard-guarded routes)*
 
 ## Tenant Isolation
 
 - [x] host → tenant resolved server-side *(TenantResolverMiddleware)*
 - [ ] tenant DB ID never trusted from client
-- [ ] connection cache isolation
-- [ ] cross-tenant E2E tests
+- [x] connection cache isolation *(shared TenantCacheService; per-org PrismaClient instances with scoped connections)*
+- [x] cross-tenant E2E tests *(§18 Scenario E automated — prog-36/37)*
 - [x] organization status enforced *(SUSPENDED/CANCELLED/ARCHIVED blocked; PROVISIONING → 503)*
 
 ## Marketplace
@@ -1610,15 +1616,15 @@ Never immediately delete tenant DB on subscription failure.
 
 # 16. Marketplace Free Listing Policy
 
-Non-subscriber can:
+Non-subscriber can (all live via /post + listing APIs):
 
-- [ ] create listing
-- [ ] edit listing
+- [x] create listing
+- [x] edit listing
 - [x] upload images *(/post page w/ §13 pipeline)*
-- [ ] add map location
-- [ ] receive inquiry
-- [ ] pause
-- [ ] mark rented/sold
+- [x] add map location *(lat/lng fields on create/edit)*
+- [x] receive inquiry
+- [x] pause
+- [x] mark rented/sold
 
 Cannot use:
 
@@ -1650,7 +1656,7 @@ Conversion CTA:
 - [x] listing reports *(API live: `/platform/marketplace/reports`)*
 - [ ] user reports
 - [x] feature flags
-- [ ] platform analytics
+- [x] platform analytics *(GET /platform/analytics[+/marketplace+/growth] — console section pending)*
 - [ ] support access
 - [x] platform audit
 

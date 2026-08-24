@@ -1,5 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { CronJobsService } from './cron-jobs.service';
+import { ControlPlanePrismaService } from '../control-plane/control-plane-prisma.service';
+import { PaymentsService } from '../payments/payments.service';
 
 /**
  * § Week 22 / assessment 🔴 — in-process scheduler registering the
@@ -16,7 +18,32 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SchedulerService.name);
   private timers: NodeJS.Timeout[] = [];
 
-  constructor(private readonly cronJobs: CronJobsService) {}
+  constructor(
+    private readonly cronJobs: CronJobsService,
+    private readonly controlPlane: ControlPlanePrismaService,
+    private readonly payments: PaymentsService,
+  ) {}
+
+  /**
+   * § P1 hardening — Postgres advisory lock so N API pods share one
+   * scheduler tick. Locks are per-job-name, auto-released on failure,
+   * and skipped cleanly when another pod holds the lock.
+   */
+  private async withLock<T>(name: string, fn: () => Promise<T>): Promise<T | 'skipped'> {
+    const key = `ferio:sched:${name}`;
+    const got = await this.controlPlane
+      .$queryRaw`SELECT pg_try_advisory_lock(hashtext(${key})) AS ok`
+      .then((r: any) => r[0]?.ok === true)
+      .catch(() => true); // if locking fails, run unlocked (old behaviour)
+    if (!got) return 'skipped';
+    try {
+      return await fn();
+    } finally {
+      await this.controlPlane
+        .$queryRaw`SELECT pg_advisory_unlock(hashtext(${key}))`
+        .catch(() => {});
+    }
+  }
 
   onModuleInit() {
     if (process.env.SCHEDULER_DISABLED === 'true') {
@@ -27,7 +54,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     const register = (name: string, everyMs: number, fn: () => Promise<unknown>) => {
       const ms = Math.max(everyMs, 30_000);
       const t = setInterval(() => {
-        void fn().catch((err) =>
+        void this.withLock(name, fn).catch((err) =>
           this.logger.warn(`scheduled ${name} failed: ${err?.message ?? err}`),
         );
       }, ms);
@@ -73,6 +100,16 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       'rent-reminders',
       Number(process.env.RENT_REMINDER_INTERVAL_MS || 21_600_000), // 6h
       () => this.cronJobs.runRentReminderScan(3),
+    );
+    register(
+      'retention-sweep',
+      Number(process.env.RETENTION_INTERVAL_MS || 86_400_000),
+      () => this.cronJobs.runRetentionSweep(),
+    );
+    register(
+      'fulfillment-retry',
+      Number(process.env.FULFILLMENT_RETRY_INTERVAL_MS || 900_000),
+      () => this.payments.refulfillPending(),
     );
     register(
       'maintenance-escalation',

@@ -389,6 +389,46 @@ export class CronJobsService {
     return { escalated };
   }
 
+
+  /**
+   * § P2 retention — trim append-heavy tables. Env-tunable day windows.
+   */
+  async runRetentionSweep() {
+    const searchDays = Number(process.env.RETENTION_SEARCH_DAYS || 90);
+    const deliveryDays = Number(process.env.RETENTION_DELIVERY_DAYS || 90);
+    const cutoffSearch = new Date(Date.now() - searchDays * 86_400_000);
+    const cutoffDelivery = new Date(Date.now() - deliveryDays * 86_400_000);
+
+    const search = await this.marketplacePrisma.searchEvent.deleteMany({
+      where: { createdAt: { lt: cutoffSearch } },
+    });
+
+    let deliveryDeleted = 0;
+    const orgs = await this.controlPlane.saasOrganization.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true },
+    });
+    for (const org of orgs) {
+      try {
+        const db = await this.tenantDbManager.getTenantDatabase(org.id);
+        const r = await db.webhookDelivery.deleteMany({
+          where: {
+            status: 'SUCCESS',
+            deliveredAt: { lt: cutoffDelivery },
+          },
+        });
+        deliveryDeleted += r.count;
+      } catch {
+        /* unreachable tenant — skip */
+      }
+    }
+
+    this.logger.log(
+      `🧹 Retention: ${search.count} search events, ${deliveryDeleted} webhook deliveries removed`,
+    );
+    return { searchEventsDeleted: search.count, deliveriesDeleted: deliveryDeleted };
+  }
+
   async runSubscriptionPastDueScan() {
     this.logger.log('⏰ Running subscription past-due scan...');
     const result = await this.subscriptions.scanForPastDue();

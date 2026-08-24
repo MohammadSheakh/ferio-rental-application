@@ -140,20 +140,26 @@ export class MarketplaceInteractionService {
     });
     if (existing) return;
 
-    await db.crmLead.create({
-      data: {
-        name:
-          sender?.displayName ??
-          input.senderNameFallback ??
-          'Marketplace lead',
-        phone: input.phone ?? sender?.phone ?? undefined,
-        email: sender?.email ?? undefined,
-        source: 'MARKETPLACE_INQUIRY',
-        interestedUnitId: localUnit.id,
-        listingId,
-        notes: input.message,
-      },
-    });
+    try {
+      await db.crmLead.create({
+        data: {
+          name:
+            sender?.displayName ??
+            input.senderNameFallback ??
+            'Marketplace lead',
+          phone: input.phone ?? sender?.phone ?? undefined,
+          email: sender?.email ?? undefined,
+          source: 'MARKETPLACE_INQUIRY',
+          interestedUnitId: localUnit.id,
+          listingId,
+          notes: input.message,
+        },
+      });
+    } catch (err: any) {
+      // § P0 race guard: unique (unit, phone) on MARKETPLACE_INQUIRY — a
+      // concurrent inquiry won the race; one lead is enough.
+      if (err?.code !== 'P2002') throw err;
+    }
     this.logger.log(
       `📥 Inquiry attributed to org ${listing.sourceOrganizationId} CRM (unit ${listing.sourceUnitId})`,
     );

@@ -33,6 +33,7 @@ import {
   API_SCOPES,
 } from '../api-external/api-key.service';
 import { TenantDbOpsService } from '../tenant-db-ops/tenant-db-ops.service';
+import { PaymentsService } from '../payments/payments.service';
 
 /**
  * Platform Admin Controller
@@ -63,6 +64,7 @@ export class PlatformAdminController {
     private readonly apiKeys: ApiKeyService,
     private readonly dbOps: TenantDbOpsService,
     private readonly resolver: TenantResolverMiddleware,
+    private readonly payments: PaymentsService,
   ) {}
 
   // ────────────────────────────────────────────────────────────
@@ -450,6 +452,94 @@ export class PlatformAdminController {
   @ApiOperation({ summary: '§ Week 22 escalate stale maintenance tickets one urgency level' })
   async maintenanceEscalation() {
     return this.cronJobs.runMaintenanceEscalationScan(3);
+  }
+
+  @Post('payments/:id/refulfill')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '§ P1 complete a PAID intent whose fulfillment failed' })
+  async refulfillPayment(@Param('id') id: string) {
+    const intent = await this.payments.getStatus(id);
+    if (intent.status !== 'PAID' || intent.fulfilledAt) {
+      throw new BadRequestException('Intent is not awaiting fulfillment');
+    }
+    return this.payments.refulfillPending();
+  }
+
+  @Post('jobs/refulfill-payments')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '§ P1 sweep PAID intents missing fulfillment' })
+  async sweepFulfillments() {
+    return this.payments.refulfillPending();
+  }
+
+  @Post('jobs/retention-sweep')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '§ P2 delete expired search events + delivered webhook log rows' })
+  async retentionSweep() {
+    return this.cronJobs.runRetentionSweep();
+  }
+
+  @Get('ops/alerts')
+  @ApiOperation({ summary: '§ P0 observability — aggregated failure signals needing operator attention' })
+  async opsAlerts() {
+    const [failedLedgerPosts, deadOutbox, failedWebhooks, failedIntents, provisioningFailed] =
+      await Promise.all([
+        this.controlPlane.platformAuditEvent.count({ where: { action: 'ledger.post_failed' } }),
+        this.tenantDeadOutbox(),
+        this.marketplaceWebhookFailures(),
+        this.controlPlane.paymentIntent.count({
+          where: { status: 'PAID', fulfilledAt: null },
+        }),
+        this.controlPlane.saasOrganization.count({ where: { status: 'PROVISIONING_FAILED' } }),
+      ]);
+    const alerts = [
+      failedLedgerPosts > 0 && `ledger.post_failed × ${failedLedgerPosts}`,
+      deadOutbox > 0 && `outbox dead-letter × ${deadOutbox}`,
+      failedWebhooks > 0 && `webhook deliveries FAILED × ${failedWebhooks}`,
+      failedIntents > 0 && `PAID intents awaiting fulfillment × ${failedIntents}`,
+      provisioningFailed > 0 && `PROVISIONING_FAILED orgs × ${provisioningFailed}`,
+    ].filter(Boolean);
+    return {
+      healthy: alerts.length === 0,
+      alerts,
+      counts: { failedLedgerPosts, deadOutbox, failedWebhooks, failedIntents, provisioningFailed },
+    };
+  }
+
+  /** § P0 observability — dead-letter outbox events across ACTIVE tenants. */
+  private async tenantDeadOutbox(): Promise<number> {
+    const orgs = await this.controlPlane.saasOrganization.findMany({
+      where: { status: 'ACTIVE', database: { status: 'READY' } },
+      select: { id: true },
+    });
+    let n = 0;
+    for (const o of orgs) {
+      try {
+        const db = await this.tenantDbManager.getTenantDatabase(o.id);
+        n += await db.tenantOutboxEvent.count({ where: { status: 'FAILED' } });
+      } catch {
+        /* skip unreachable */
+      }
+    }
+    return n;
+  }
+
+  private async marketplaceWebhookFailures(): Promise<number> {
+    // webhook deliveries live per-tenant; count across ACTIVE orgs
+    const orgs = await this.controlPlane.saasOrganization.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true },
+    });
+    let n = 0;
+    for (const o of orgs) {
+      try {
+        const db = await this.tenantDbManager.getTenantDatabase(o.id);
+        n += await db.webhookDelivery.count({ where: { status: 'FAILED' } });
+      } catch {
+        /* skip */
+      }
+    }
+    return n;
   }
 
   @Post('jobs/generate-monthly-statements')

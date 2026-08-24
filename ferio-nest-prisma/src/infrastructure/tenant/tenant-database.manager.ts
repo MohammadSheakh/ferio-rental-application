@@ -23,7 +23,9 @@ export class TenantDatabaseManager implements OnModuleDestroy {
   private readonly logger = new Logger(TenantDatabaseManager.name);
   private readonly cache = new Map<string, CachedConnection>();
 
-  private readonly MAX_POOL_SIZE = 50;
+  /** Env-tunable ceiling (§ hardening): TENANT_MAX_POOL_SIZE, default 50.
+   *  Pair with pgBouncer when fleet size × per-tenant pools approach server max_connections. */
+  private readonly MAX_POOL_SIZE = Number(process.env.TENANT_MAX_POOL_SIZE || 50);
   private readonly CONNECTION_TTL_MS = 10 * 60 * 1000;
   private readonly CLEANUP_INTERVAL_MS = 2 * 60 * 1000;
 

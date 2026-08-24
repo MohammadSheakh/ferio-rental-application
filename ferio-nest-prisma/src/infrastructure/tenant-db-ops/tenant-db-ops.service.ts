@@ -13,6 +13,7 @@ import { Client } from 'pg';
 import { ControlPlanePrismaService } from '../control-plane/control-plane-prisma.service';
 import { TenantDatabaseManager } from '../tenant/tenant-database.manager';
 import { StorageService } from '../storage/storage.service';
+import { buildTenantUrl, resolveTenantPassword } from '../tenant/tenant-credentials';
 
 /**
  * § Week 36 Tenant DB Operations.
@@ -332,10 +333,7 @@ export class TenantDbOpsService {
       host: db.host,
       port: db.port,
       user: db.username,
-      password:
-        process.env.TENANT_DB_PASSWORD ||
-        process.env.TENANT_DB_DEFAULT_PASSWORD ||
-        'postgres',
+      password: resolveTenantPassword((db as any).passwordRef ?? null),
       database: db.databaseName,
       ssl: process.env.TENANT_DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
     });

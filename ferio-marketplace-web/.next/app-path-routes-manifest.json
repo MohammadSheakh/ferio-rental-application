@@ -6,5 +6,6 @@
   "/login/page": "/login",
   "/manifest.webmanifest/route": "/manifest.webmanifest",
   "/page": "/",
+  "/post/page": "/post",
   "/renter/page": "/renter"
 }
