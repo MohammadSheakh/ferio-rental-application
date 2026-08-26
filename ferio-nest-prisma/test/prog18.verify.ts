@@ -29,7 +29,14 @@ async function main() {
   const U = d(await req('POST', '/tenant/units', {
     ...H, body: { propertyId: props[0].id, name: `A-${Date.now() % 1000}`, type: 'APARTMENT', floor: 5, bedrooms: 3, bathrooms: 2, areaSqFt: 1300 },
   }));
-  const seller = d(await req('GET', '/marketplace/accounts/me/demo_seed_seller'));
+  const ownerMe = d(await req('GET', '/identity/me', { token: owner.token }));
+  let seller = d(await req('GET', `/marketplace/accounts/me/${ownerMe.userId}`, { token: owner.token }));
+  if (!seller?.id) {
+    seller = d(await req('POST', '/marketplace/accounts', {
+      token: owner.token,
+      body: { centralUserId: ownerMe.userId, displayName: 'Sheakh Family Properties' },
+    }));
+  }
   r = await req('POST', `/tenant/units/${U.id}/publish`, {
     ...H, body: { sellerAccountId: seller.id, price: 47000, purpose: 'RENT', assetType: 'APARTMENT' },
   });
@@ -41,12 +48,14 @@ async function main() {
 
   // Prospect identity inquires twice with same phone → single lead
   const inq = d(await req('POST', '/identity/register', { body: { email: `inq${Date.now()}@demo.test`, password: 'supersecret1', displayName: 'Imran Inquirer' } }));
-  const acct = d(await req('POST', '/marketplace/accounts', { body: { centralUserId: inq.user.userId, displayName: 'Imran Inquirer', phone: '01715550000', accountType: 'INDIVIDUAL' } }));
+  const acct = d(await req('POST', '/marketplace/accounts', { token: inq.token, body: { centralUserId: inq.user.userId, displayName: 'Imran Inquirer', phone: '01715550000', accountType: 'INDIVIDUAL' } }));
 
   await req('POST', `/marketplace/listings/${listing}/inquiries`, {
+    token: inq.token,
     body: { senderAccountId: acct.id, senderName: 'Imran Inquirer', senderPhone: '01715550000', message: 'Is this still available?' },
   });
   await req('POST', `/marketplace/listings/${listing}/inquiries`, {
+    token: inq.token,
     body: { senderAccountId: acct.id, senderName: 'Imran Inquirer', senderPhone: '01715550000', message: 'Following up!' },
   });
   ok('two inquiries sent');

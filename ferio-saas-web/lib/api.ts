@@ -132,11 +132,12 @@ async function request<T>(
   opts?: Options,
 ): Promise<T> {
   const token = authToken();
+  const isProduction = process.env.NODE_ENV === 'production';
   const res = await fetch(`${API_URL}${path}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
-      'X-Tenant-Slug': getActiveTenantSlug(),
+      ...(!isProduction ? { 'X-Tenant-Slug': getActiveTenantSlug() } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -254,3 +255,71 @@ export const verifyPayment = (paymentId: string, verifiedBy: string) =>
     `/tenant/billing/payments/${paymentId}/verify`,
     { verifiedBy },
   );
+
+// ── Operational read models ──
+
+export interface Lease {
+  id: string;
+  leaseNumber: string;
+  status: string;
+  monthlyRent: number;
+  securityDeposit: number;
+  startDate: string;
+  endDate: string;
+  unit: { name: string; property: { name: string } };
+  renter: { name: string; phone?: string | null; email?: string | null };
+}
+
+export interface MaintenanceRequest {
+  id: string;
+  title: string;
+  description?: string | null;
+  category: string;
+  urgency: string;
+  status: string;
+  estimatedCost?: number | null;
+  createdAt: string;
+  unit: { name: string; property: { name: string } };
+  workOrders: Array<{ id: string; status: string; assignedTo?: string | null }>;
+}
+
+export interface UtilityAccount {
+  id: string;
+  type: string;
+  provider?: string | null;
+  accountNumber?: string | null;
+  scope: string;
+  responsibility: string;
+  unit?: { name: string; property: { name: string } } | null;
+  meters: Array<{
+    id: string;
+    meterNumber?: string | null;
+    readings: Array<{
+      id: string;
+      previousReading: number;
+      currentReading: number;
+      consumption: number;
+      readingDate: string;
+    }>;
+  }>;
+  bills: Array<{ id: string; totalAmount: number; periodEnd: string; allocationMethod: string }>;
+}
+
+export interface CrmLead {
+  id: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  source: string;
+  status: string;
+  interestedUnitId?: string | null;
+  assignedTo?: string | null;
+  updatedAt: string;
+}
+
+export const listLeases = () => request<Lease[]>('GET', '/tenant/leases');
+export const listMaintenance = () =>
+  request<MaintenanceRequest[]>('GET', '/tenant/maintenance');
+export const listUtilities = () =>
+  request<UtilityAccount[]>('GET', '/tenant/utilities');
+export const listCrmLeads = () => request<CrmLead[]>('GET', '/tenant/crm/leads');

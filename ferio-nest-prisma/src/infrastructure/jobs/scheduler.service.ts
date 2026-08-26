@@ -1,7 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { CronJobsService } from './cron-jobs.service';
-import { ControlPlanePrismaService } from '../control-plane/control-plane-prisma.service';
 import { PaymentsService } from '../payments/payments.service';
+import { Client } from 'pg';
+import { tlsOptionsFromUrl } from '../tenant/tls-options';
 
 /**
  * § Week 22 / assessment 🔴 — in-process scheduler registering the
@@ -20,28 +21,30 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly cronJobs: CronJobsService,
-    private readonly controlPlane: ControlPlanePrismaService,
     private readonly payments: PaymentsService,
   ) {}
 
-  /**
-   * § P1 hardening — Postgres advisory lock so N API pods share one
-   * scheduler tick. Locks are per-job-name, auto-released on failure,
-   * and skipped cleanly when another pod holds the lock.
-   */
+  /** Hold the session advisory lock on one dedicated pg connection. */
   private async withLock<T>(name: string, fn: () => Promise<T>): Promise<T | 'skipped'> {
+    const databaseUrl = process.env.CONTROL_PLANE_DATABASE_URL;
+    if (!databaseUrl) throw new Error('CONTROL_PLANE_DATABASE_URL is required for scheduler locking');
+
     const key = `ferio:sched:${name}`;
-    const got = await this.controlPlane
-      .$queryRaw`SELECT pg_try_advisory_lock(hashtext(${key})) AS ok`
-      .then((r: any) => r[0]?.ok === true)
-      .catch(() => true); // if locking fails, run unlocked (old behaviour)
-    if (!got) return 'skipped';
+    const { connectionString, ssl } = tlsOptionsFromUrl(databaseUrl);
+    const client = new Client({ connectionString, ssl });
+    await client.connect();
     try {
+      const result = await client.query<{ ok: boolean }>(
+        'SELECT pg_try_advisory_lock(hashtext($1)) AS ok',
+        [key],
+      );
+      if (result.rows[0]?.ok !== true) return 'skipped';
       return await fn();
     } finally {
-      await this.controlPlane
-        .$queryRaw`SELECT pg_advisory_unlock(hashtext(${key}))`
-        .catch(() => {});
+      await client
+        .query('SELECT pg_advisory_unlock(hashtext($1))', [key])
+        .catch((err) => this.logger.error(`scheduler unlock failed for ${name}: ${err.message}`));
+      await client.end().catch(() => {});
     }
   }
 

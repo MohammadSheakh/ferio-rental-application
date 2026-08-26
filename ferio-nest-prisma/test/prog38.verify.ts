@@ -130,7 +130,7 @@ async function main() {
   await req('POST', '/marketplace/accounts', {
     token: seller.token, body: { centralUserId: seller.userId, displayName: 'Pay Seller' },
   });
-  const sAcct = d(await req('GET', `/marketplace/accounts/me/${seller.userId}`));
+  const sAcct = d(await req('GET', `/marketplace/accounts/me/${seller.userId}`, { token: seller.token }));
   r = await req('POST', `/marketplace/accounts/${sAcct.id}/listings`, {
     token: seller.token,
     body: {

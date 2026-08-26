@@ -42,11 +42,11 @@ async function main() {
   });
   // (uploads are multipart; instead verify gating directly on the static path)
   const docRes = await fetch(`${B.replace('/api/v1', '')}/uploads/documents/2026/08/private-probe.pdf`);
-  docRes.status === 401
-    ? ok('documents/ bytes require auth (401 anonymous)')
+  docRes.status === 404
+    ? ok('documents/ bytes are not directly served (404)')
     : bad('doc gate', docRes.status);
   const bakRes = await fetch(`${B.replace('/api/v1', '')}/uploads/backups/2026/08/probe.dump`);
-  bakRes.status === 401 ? ok('backups/ bytes require auth (401 anonymous)') : bad('backup gate', bakRes.status);
+  bakRes.status === 404 ? ok('backups/ bytes are not directly served (404)') : bad('backup gate', bakRes.status);
   const imgRes = await fetch(`${B.replace('/api/v1', '')}/uploads/images/2026/08/public.png`);
   [200, 404].includes(imgRes.status)
     ? ok(`images/ stays public for listing photos (${imgRes.status})`)
@@ -59,7 +59,7 @@ async function main() {
   await req('POST', '/marketplace/accounts', {
     token: sellerTok, body: { centralUserId: d(await req('GET', '/identity/me', { token: sellerTok }))?.userId, displayName: 'Race S' },
   });
-  const sAcct = d(await req('GET', `/marketplace/accounts/me/${d(await req('GET', '/identity/me', { token: sellerTok }))?.userId}`));
+  const sAcct = d(await req('GET', `/marketplace/accounts/me/${d(await req('GET', '/identity/me', { token: sellerTok }))?.userId}`, { token: sellerTok }));
   r = await req('POST', `/marketplace/accounts/${sAcct.id}/listings`, {
     token: sellerTok,
     body: {

@@ -107,27 +107,15 @@ export class SocketAuthService implements OnModuleInit {
             };
           }
 
-          // Generic token payload fallback
-          return {
-            userId: targetId,
-            role: payload.role || 'guest',
-            name: payload.name || 'Visitor',
-          };
+          return null;
         }
       } catch {
-        // Fall back to guest session if token is expired or invalid
-        return {
-          userId: this.normalizeGuestId(guestId) || `guest_${socket.id.slice(0, 8)}`,
-          role: 'guest',
-          name: 'Guest Visitor',
-        };
+        // A supplied credential must either verify or fail closed. Anonymous
+        // guests connect without a token and follow the explicit path above.
+        return null;
       }
 
-      return {
-        userId: this.normalizeGuestId(guestId) || `guest_${socket.id.slice(0, 8)}`,
-        role: 'guest',
-        name: 'Guest Visitor',
-      };
+      return null;
     } catch (error) {
       this.logger.warn(`⚠️ Socket authentication failed: ${error.message}`);
       return {

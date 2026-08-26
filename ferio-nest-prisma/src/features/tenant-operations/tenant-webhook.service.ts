@@ -17,6 +17,10 @@ const RETRY_BASE_MS = Number(process.env.WEBHOOK_RETRY_BASE_MS || 30_000);
 const MAX_ATTEMPTS = Number(process.env.WEBHOOK_MAX_ATTEMPTS || 5);
 const POLL_MS = Number(process.env.WEBHOOK_POLL_INTERVAL_MS || 10_000);
 const TIMEOUT_MS = 10_000;
+const CLAIM_LEASE_MS = Math.max(
+  Number(process.env.WEBHOOK_CLAIM_LEASE_MS || 60_000),
+  TIMEOUT_MS * 2,
+);
 
 /**
  * § Week 33 Outbound webhooks.
@@ -193,7 +197,7 @@ export class TenantWebhookService implements OnModuleInit, OnModuleDestroy {
 
   private async countSettled(organizationId: string): Promise<number> {
     const db = await this.tenantDbManager.getTenantDatabase(organizationId);
-    return db.webhookDelivery.count({ where: { status: { not: 'PENDING' } } });
+    return db.webhookDelivery.count({ where: { status: { in: ['SUCCESS', 'FAILED'] } } });
   }
 
   /** Attempt every due delivery across one tenant DB. */
@@ -204,45 +208,55 @@ export class TenantWebhookService implements OnModuleInit, OnModuleDestroy {
     } catch {
       return;
     }
-    // § P1 hardening: FOR UPDATE SKIP LOCKED so multiple API pods never
-    // claim the same delivery (duplicate webhooks under horizontal scale).
-    const due = await db.$queryRaw<Array<{
+    // Atomically lease rows before network I/O. A crashed worker's lease
+    // expires and becomes claimable again on a later cycle.
+    const leaseUntil = new Date(Date.now() + CLAIM_LEASE_MS);
+    const claims = await db.$queryRaw<Array<{
       id: string; endpointId: string; event: string; payload: unknown;
       attempts: number; maxAttempts: number;
+      endpointUrl: string; endpointSecret: string; endpointEnabled: boolean;
     }>>(
       Prisma.sql`
-        SELECT d."id", d."endpointId", d."event", d.payload, d.attempts, d."maxAttempts"
-        FROM "WebhookDelivery" d
-        WHERE d.status = 'PENDING' AND d."nextAttemptAt" <= now()
-        ORDER BY d."nextAttemptAt"
-        LIMIT 50
-        FOR UPDATE OF d SKIP LOCKED
+        WITH due AS (
+          SELECT d."id"
+          FROM "WebhookDelivery" d
+          WHERE
+            (d.status = 'PENDING' AND d."nextAttemptAt" <= now())
+            OR (d.status = 'PROCESSING' AND d."nextAttemptAt" <= now())
+          ORDER BY d."nextAttemptAt"
+          LIMIT 50
+          FOR UPDATE OF d SKIP LOCKED
+        ), claimed AS (
+          UPDATE "WebhookDelivery" d
+          SET status = 'PROCESSING', "nextAttemptAt" = ${leaseUntil}
+          FROM due
+          WHERE d."id" = due."id"
+          RETURNING d."id", d."endpointId", d."event", d.payload,
+                    d.attempts, d."maxAttempts"
+        )
+        SELECT c.*, e.url AS "endpointUrl", e.secret AS "endpointSecret",
+               e.enabled AS "endpointEnabled"
+        FROM claimed c
+        JOIN "WebhookEndpoint" e ON e.id = c."endpointId"
       `,
     );
-    const hydrated = await Promise.all(
-      due.map(async (row) => {
-        const full = await db.webhookDelivery.findUnique({
-          where: { id: row.id },
-          include: { endpoint: { select: { url: true, secret: true, enabled: true } } },
-        });
-        return full;
-      }),
-    );
-    const claims = hydrated.filter(Boolean) as NonNullable<typeof hydrated[number]>[];
 
     for (const d of claims) {
-      if (!d.endpoint.enabled) {
-        await db.webhookDelivery.update({ where: { id: d.id }, data: { nextAttemptAt: new Date(Date.now() + RETRY_BASE_MS) } }).catch(() => {});
+      if (!d.endpointEnabled) {
+        await db.webhookDelivery.update({
+          where: { id: d.id },
+          data: { status: 'PENDING', nextAttemptAt: new Date(Date.now() + RETRY_BASE_MS) },
+        }).catch(() => {});
         continue;
       }
       const body = JSON.stringify(d.payload);
-      const signature = createHmac('sha256', d.endpoint.secret).update(body).digest('hex');
+      const signature = createHmac('sha256', d.endpointSecret).update(body).digest('hex');
       let okCode: number | null = null;
       let errorText: string | null = null;
       try {
         const controller = new AbortController();
         const t = setTimeout((c) => c.abort(), TIMEOUT_MS, controller);
-        const res = await fetch(d.endpoint.url, {
+        const res = await fetch(d.endpointUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -278,6 +292,7 @@ export class TenantWebhookService implements OnModuleInit, OnModuleDestroy {
         await db.webhookDelivery.update({
           where: { id: d.id },
           data: {
+            status: 'PENDING',
             attempts,
             responseCode: okCode,
             error: errorText,

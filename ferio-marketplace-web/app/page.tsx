@@ -143,8 +143,8 @@ export default function MarketplacePage() {
           </Link>
           <nav className="hidden items-center gap-6 text-sm text-[#6e6e73] md:flex">
             <button
-              onClick={() => { setPurpose(''); setPage(1); }}
-              className={`transition-colors hover:text-[#111114] ${purpose === '' ? 'font-medium text-[#111114]' : ''}`}
+              onClick={() => { setPurpose('SALE'); setPage(1); }}
+              className={`transition-colors hover:text-[#111114] ${purpose === 'SALE' ? 'font-medium text-[#111114]' : ''}`}
             >
               Buy
             </button>
@@ -154,8 +154,12 @@ export default function MarketplacePage() {
             >
               Rent
             </button>
-            <span>Commercial</span>
-            <span>Land</span>
+            <button onClick={() => { setAssetType('OFFICE'); setPage(1); }} className="transition-colors hover:text-[#111114]">
+              Commercial
+            </button>
+            <button onClick={() => { setAssetType('LAND'); setPage(1); }} className="transition-colors hover:text-[#111114]">
+              Land
+            </button>
           </nav>
           <div className="flex items-center gap-3">
             {auth.ready && auth.token ? (

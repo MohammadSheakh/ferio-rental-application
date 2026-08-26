@@ -8,6 +8,7 @@ import { TenantDatabaseManager } from '../../infrastructure/tenant/tenant-databa
 import { TenantBillingService } from '../tenant-operations/tenant-billing.service';
 import { BadRequestException } from '@nestjs/common';
 import { PaymentMethod, InvoiceStatus, LeaseStatus, MaintenanceStatus } from '@prisma/tenant-client';
+import { StorageService } from '../../infrastructure/storage/storage.service';
 
 /**
  * Renter Portal Service (§ Week 28)
@@ -23,6 +24,7 @@ export class RenterPortalService {
     private readonly controlPlane: ControlPlanePrismaService,
     private readonly tenantDbManager: TenantDatabaseManager,
     private readonly billing: TenantBillingService,
+    private readonly storage: StorageService,
   ) {}
 
   /** Locate the org whose tenant DB has this identity as an occupant. */
@@ -283,7 +285,7 @@ export class RenterPortalService {
   /** Documents attached to the tenancy (lease or unit). */
   async listDocuments(centralUserId: string) {
     const { db, lease } = await this.locate(centralUserId);
-    return db.tenantDocument.findMany({
+    const documents = await db.tenantDocument.findMany({
       where: {
         OR: [
           { attachedToType: 'LEASE', attachedToId: lease.id },
@@ -296,6 +298,10 @@ export class RenterPortalService {
         attachedToType: true, createdAt: true,
       },
     });
+    return documents.map((document) => ({
+      ...document,
+      fileUrl: this.storage.createSignedDownloadUrl(document.fileUrl),
+    }));
   }
 
   /** Monthly statements for the rented unit. */

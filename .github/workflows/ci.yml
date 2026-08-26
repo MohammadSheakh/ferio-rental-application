@@ -53,16 +53,21 @@ jobs:
       # ── Tenant migration replay (empty-DB check, §14) ──
       - name: Start PostgreSQL (PostGIS)
         run: |
-          sudo docker run -d --name pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgis/postgis:16-3.4
+          sudo docker run -d --name pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=replay_tenant -p 5432:5432 postgis/postgis:16-3.4
           for i in $(seq 1 30); do
             pg_isready -h localhost -U postgres && break || sleep 2
           done
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE DATABASE ferio_marketplace;"
 
       - name: Replay tenant migrations on empty DB
         run: npx prisma migrate deploy --config prisma/tenant/prisma.config.ts
         working-directory: ferio-nest-prisma
         env:
           TENANT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/replay_tenant
+
+      - name: Push marketplace base schema
+        run: npx prisma db push --skip-generate --config prisma/marketplace/prisma.config.ts
+        working-directory: ferio-nest-prisma
 
       - name: Apply marketplace SQL migrations (PostGIS foundation)
         run: pnpm run prisma:marketplace:sql
@@ -104,6 +109,9 @@ jobs:
       TENANT_DB_USERNAME: postgres
       TENANT_DB_PASSWORD: postgres
       SCHEDULER_DISABLED: 'true'
+      EXTERNAL_API_RATE_LIMIT: '10'
+      WEBHOOK_POLL_INTERVAL_MS: '100'
+      WEBHOOK_RETRY_BASE_MS: '100'
       DOMAIN_DNS_MODE: mock
       PORT: 6799
       JWT_ACCESS_SECRET: ci-integration-secret
@@ -163,8 +171,9 @@ jobs:
           node dist/src/main.js > api.log 2>&1 &
           echo $! > api.pid
           for i in $(seq 1 60); do
-            curl -sf http://localhost:6799/api/v1/identity/me -o /dev/null && break || sleep 2
+            curl -sf http://localhost:6799/api/v1/health -o /dev/null && break || sleep 2
           done
+          curl -sf http://localhost:6799/api/v1/health -o /dev/null
 
       - name: Provision sheakh-fam workspace (PRO)
         working-directory: ferio-nest-prisma
@@ -174,15 +183,16 @@ jobs:
           STAFF=$(curl -s -X POST http://localhost:6799/api/v1/identity/platform/login -H 'Content-Type: application/json' -d '{"email":"admin@ferio.test","password":"RootAdmin1!"}' | TOKEN)
           OWNER_TOKEN=$(curl -s -X POST http://localhost:6799/api/v1/identity/login -H 'Content-Type: application/json' -d '{"email":"owner@demo.test","password":"supersecret1"}' | TOKEN)
           OWNER=$(curl -s http://localhost:6799/api/v1/identity/me -H "Authorization: Bearer $OWNER_TOKEN" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{console.log(JSON.parse(d).data.userId)})")
-          curl -sf -X POST http://localhost:6799/api/v1/platform/organizations -H "Authorization: Bearer $STAFF" -H 'Content-Type: application/json' -d "{"name":"Sheakh Family Properties","slug":"sheakh-fam","planTier":"PRO","ownerUserId":"$OWNER"}" > /dev/null
+          curl -sf -X POST http://localhost:6799/api/v1/platform/organizations -H "Authorization: Bearer $STAFF" -H 'Content-Type: application/json' -d "{\"name\":\"Sheakh Family Properties\",\"slug\":\"sheakh-fam\",\"planTier\":\"PRO\",\"ownerUserId\":\"$OWNER\"}" > /dev/null
 
       - name: Run verify suites
         working-directory: ferio-nest-prisma
         run: |
           set -e
-          for s in prog13 prog19 prog30 prog36 prog37; do
-            echo "── $$s ──"
-            npx ts-node --transpile-only -r tsconfig-paths/register test/$$s.verify.ts
+          # prog27 intentionally exhausts the process-wide inquiry throttle, so run it last.
+          for s in entitlements iam parts-bcd provisioning prog13 prog14 prog15 prog16 prog17 prog18 prog19 prog20 prog21 prog22 prog23 prog26 prog28 prog29 prog30 prog31 prog32 prog33 prog34 prog35 prog36 prog37 prog38 prog39 prog27; do
+            echo "── $s ──"
+            npx ts-node --transpile-only -r tsconfig-paths/register test/$s.verify.ts
           done
 
       - name: Stop API

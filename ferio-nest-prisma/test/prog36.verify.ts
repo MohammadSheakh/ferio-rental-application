@@ -73,9 +73,10 @@ async function main() {
   }));
   if (!unit?.id) { bad('unit create', m(r)); process.exit(1); }
 
-  let ownerAcct = d(await req('GET', `/marketplace/accounts/me/${ownerUid}`));
+  let ownerAcct = d(await req('GET', `/marketplace/accounts/me/${ownerUid}`, { token: owner.token }));
   if (!ownerAcct?.id) {
     ownerAcct = d(await req('POST', '/marketplace/accounts', {
+      token: owner.token,
       body: { centralUserId: ownerUid, displayName: 'Sheakh Family Properties' },
     }));
   }

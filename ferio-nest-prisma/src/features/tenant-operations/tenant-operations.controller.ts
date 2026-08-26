@@ -43,6 +43,7 @@ import { Identity } from '../../infrastructure/identity/identity.decorators';
 import { TenantDatabaseManager } from '../../infrastructure/tenant/tenant-database.manager';
 import { ActiveMemberGuard, DomainWriteGuard, RequireMemberDomain } from './member-access.guard';
 import { assertInScope, filterByScope } from './member-scope';
+import { StorageService } from '../../infrastructure/storage/storage.service';
 
 @ApiTags('Tenant Operations')
 @ApiBearerAuth()
@@ -59,6 +60,7 @@ export class TenantOperationsController {
     private readonly reportingService: TenantReportingService,
     private readonly projectionService: MarketplaceProjectionService,
     private readonly tenantDbManager: TenantDatabaseManager,
+    private readonly storage: StorageService,
   ) {}
 
   private getOrgId(req: any): string {
@@ -582,7 +584,12 @@ export class TenantOperationsController {
     if (!body.attachedToId) {
       throw new BadRequestException('attachedToId is required');
     }
-    const db = await this.tenantDbManager.getTenantDatabase(this.getOrgId(req));
+    const organizationId = this.getOrgId(req);
+    this.storage.assertReferenceScope(body.fileUrl, {
+      realm: 'organization',
+      id: organizationId,
+    });
+    const db = await this.tenantDbManager.getTenantDatabase(organizationId);
     return db.tenantDocument.create({
       data: {
         category: body.category || 'OTHER',
@@ -603,7 +610,7 @@ export class TenantOperationsController {
     @Query('attachedToId') attachedToId?: string,
   ) {
     const db = await this.tenantDbManager.getTenantDatabase(this.getOrgId(req));
-    return db.tenantDocument.findMany({
+    const documents = await db.tenantDocument.findMany({
       where:
         attachedToType && attachedToId
           ? { attachedToType, attachedToId }
@@ -611,6 +618,10 @@ export class TenantOperationsController {
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
+    return documents.map((document) => ({
+      ...document,
+      fileUrl: this.storage.createSignedDownloadUrl(document.fileUrl),
+    }));
   }
 
   // ────────────────────────────────────────────────────────────

@@ -57,9 +57,10 @@ export class TenantResolverMiddleware implements NestMiddleware {
   ) {}
 
   async use(req: Request, _res: Response, next: NextFunction) {
-    // Dev override header wins first
+    // The override exists only for local/scratch clients. Production tenant
+    // selection must come from a verified host or custom domain.
     const headerSlug = req.headers['x-tenant-slug'] as string | undefined;
-    if (headerSlug) {
+    if (headerSlug && process.env.NODE_ENV !== 'production') {
       try {
         const context = await this.resolveContext(headerSlug.toLowerCase().trim());
         req.tenantContext = context;

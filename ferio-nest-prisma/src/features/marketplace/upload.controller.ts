@@ -5,6 +5,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -51,8 +52,11 @@ export class MarketplaceUploadController {
     schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } },
   })
   @ApiOperation({ summary: 'Upload a sale/legal document (pdf/jpeg/png ≤10MB) → { url }' })
-  async uploadDocument(@UploadedFile() file?: Express.Multer.File) {
+  async uploadDocument(@Req() req: any, @UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('file is required (multipart field "file")');
-    return this.storage.upload('documents', file);
+    return this.storage.upload('documents', file, {
+      realm: 'marketplace',
+      id: req.user.sub,
+    });
   }
 }

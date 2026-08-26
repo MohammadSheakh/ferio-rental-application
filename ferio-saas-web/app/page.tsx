@@ -1,141 +1,49 @@
 'use client';
 
-import { Header } from '@/components/Header';
-import { Building2, FileText, CreditCard, ArrowUpRight, TrendingUp, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { Header } from '@/components/Header';
+import { getActiveTenantSlug, listInvoices, listLeases, listMaintenance, listUnits, type Invoice } from '@/lib/api';
+
+type Dashboard = { units: number; occupied: number; leases: number; openMaintenance: number; invoiced: number; invoices: Invoice[] };
+const money = (value: number) => `৳ ${value.toLocaleString('en-US')}`;
 
 export default function OverviewPage() {
-  const kpiStats = [
-    { label: 'Occupancy Rate', value: '94.2%', change: '+2.1%', isPositive: true, sub: '48 of 51 Units Occupied' },
-    { label: 'Monthly Revenue', value: '৳ 2,145,000', change: '+৳ 120k', isPositive: true, sub: 'August 2026 Invoiced' },
-    { label: 'Active Leases', value: '48', change: '2 Renewal Pending', isPositive: false, sub: 'Avg Duration 12 Mo' },
-    { label: 'Maintenance Queue', value: '3 Open', change: '1 Emergency', isPositive: false, sub: 'Avg Resolve Time 4h' },
-  ];
+  const [data, setData] = useState<Dashboard | null>(null);
+  const [error, setError] = useState('');
 
-  const recentInvoices = [
-    { id: 'INV-2026-08-012', tenant: 'Tanvir Hossain', unit: 'Rose Valley #A-4', amount: '৳ 45,000', dueDate: '05 Aug 2026', status: 'PAID', method: 'bKash' },
-    { id: 'INV-2026-08-013', tenant: 'Sultana Parveen', unit: 'Banani Tower #B-2', amount: '৳ 62,000', dueDate: '05 Aug 2026', status: 'PAID', method: 'Bank Transfer' },
-    { id: 'INV-2026-08-014', tenant: 'Mahmudur Rahman', unit: 'Gulshan Heights #4-C', amount: '৳ 85,000', dueDate: '10 Aug 2026', status: 'OVERDUE', method: 'Cash (Pending)' },
-    { id: 'INV-2026-08-015', tenant: 'Kamrul Hasan', unit: 'Rose Valley #B-1', amount: '৳ 48,000', dueDate: '05 Aug 2026', status: 'PARTIALLY_PAID', method: 'Nagad' },
-  ];
+  useEffect(() => {
+    Promise.all([listUnits(), listInvoices(), listLeases(), listMaintenance()])
+      .then(([units, invoices, leases, maintenance]) => setData({
+        units: units.length,
+        occupied: units.filter((unit) => unit.status === 'OCCUPIED').length,
+        leases: leases.filter((lease) => lease.status === 'ACTIVE').length,
+        openMaintenance: maintenance.filter((item) => !['RESOLVED', 'CLOSED'].includes(item.status)).length,
+        invoiced: invoices.reduce((sum, invoice) => sum + invoice.totalAmount, 0),
+        invoices: invoices.slice(0, 6),
+      }))
+      .catch((cause) => setError(cause instanceof Error ? cause.message : 'Could not load workspace data'));
+  }, []);
 
-  return (
-    <div>
-      <Header
-        title="Portfolio Operations Overview"
-        subtitle="Dhaka Prime Properties — Organization ID: DHAKA-PRIME"
-        quickActionLabel="New Property"
-      />
-
-      <div className="p-8 space-y-8">
-        {/* KPI Metrics Cards */}
-        <div className="grid grid-cols-4 gap-5">
-          {kpiStats.map((kpi) => (
-            <div key={kpi.label} className="hairline-card space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="eyebrow-label">{kpi.label}</span>
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${kpi.isPositive ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                  {kpi.change}
-                </span>
-              </div>
-              <div className="text-2xl font-bold text-[#111114] tracking-tight">{kpi.value}</div>
-              <div className="text-xs text-[#6e6e73]">{kpi.sub}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Operational Split Grid */}
-        <div className="grid grid-cols-3 gap-8">
-          {/* Main Table: Recent Financial Transactions */}
-          <div className="col-span-2 hairline-card space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-semibold text-[#111114]">Recent Invoices & Cash Collections</h2>
-                <p className="text-xs text-[#6e6e73]">Automated double-entry ledger postings</p>
-              </div>
-              <Link href="/billing" className="text-xs font-semibold text-[#111114] hover:underline flex items-center gap-1">
-                View Ledger <ArrowUpRight className="w-3.5 h-3.5" />
-              </Link>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-[#e8e8ea] text-[11px] font-semibold text-[#6e6e73] uppercase tracking-wider">
-                    <th className="py-2.5 px-3">Invoice #</th>
-                    <th className="py-2.5 px-3">Tenant & Unit</th>
-                    <th className="py-2.5 px-3">Amount</th>
-                    <th className="py-2.5 px-3">Payment Method</th>
-                    <th className="py-2.5 px-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#e8e8ea] text-xs">
-                  {recentInvoices.map((inv) => (
-                    <tr key={inv.id} className="hover:bg-[#fafafa] transition-colors">
-                      <td className="py-3 px-3 font-mono font-medium text-[#111114]">{inv.id}</td>
-                      <td className="py-3 px-3">
-                        <div className="font-medium text-[#111114]">{inv.tenant}</div>
-                        <div className="text-[11px] text-[#6e6e73]">{inv.unit}</div>
-                      </td>
-                      <td className="py-3 px-3 font-semibold text-[#111114]">{inv.amount}</td>
-                      <td className="py-3 px-3 text-[#6e6e73]">{inv.method}</td>
-                      <td className="py-3 px-3">
-                        {inv.status === 'PAID' && (
-                          <span className="status-pill status-pill-success">PAID</span>
-                        )}
-                        {inv.status === 'OVERDUE' && (
-                          <span className="status-pill status-pill-error">OVERDUE</span>
-                        )}
-                        {inv.status === 'PARTIALLY_PAID' && (
-                          <span className="status-pill status-pill-warning">PARTIAL</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Side Panel: Unit Status & Quick Actions */}
-          <div className="space-y-6">
-            {/* Quick Actions Card */}
-            <div className="hairline-card space-y-4">
-              <span className="eyebrow-label">Action Shortcuts</span>
-              <div className="space-y-2">
-                <Link href="/billing" className="w-full btn-pill-secondary text-xs justify-between py-2 px-4">
-                  <span>Record Cash / bKash Payment</span>
-                  <CreditCard className="w-3.5 h-3.5 text-[#6e6e73]" />
-                </Link>
-                <Link href="/leases" className="w-full btn-pill-secondary text-xs justify-between py-2 px-4">
-                  <span>Draft New Lease Agreement</span>
-                  <FileText className="w-3.5 h-3.5 text-[#6e6e73]" />
-                </Link>
-                <Link href="/crm" className="w-full btn-pill-secondary text-xs justify-between py-2 px-4">
-                  <span>Register Prospect Lead</span>
-                  <Building2 className="w-3.5 h-3.5 text-[#6e6e73]" />
-                </Link>
-              </div>
-            </div>
-
-            {/* Emergency Maintenance Snippet */}
-            <div className="hairline-card bg-rose-50/40 border-rose-200 space-y-3">
-              <div className="flex items-center gap-2 text-rose-700 font-semibold text-xs">
-                <AlertCircle className="w-4 h-4" />
-                Emergency Maintenance Alert
-              </div>
-              <p className="text-xs text-[#111114]">
-                Water Pipe Burst at <strong className="font-semibold">Rose Valley #A-2</strong>. Reported via WhatsApp by tenant Rafiqul Islam.
-              </p>
-              <div className="flex justify-end">
-                <Link href="/maintenance" className="btn-pill-primary text-xs py-1 px-3">
-                  Assign Vendor Work Order
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+  return <div>
+    <Header title="Portfolio overview" subtitle={`Live workspace data · ${getActiveTenantSlug()}`} />
+    <div className="space-y-8 p-5 sm:p-8">
+      {error && <p className="rounded-[10px] border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</p>}
+      {!data && !error && <p className="text-sm text-[#6e6e73]">Loading workspace data…</p>}
+      {data && <>
+        <section className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            ['Occupancy', data.units ? `${Math.round((data.occupied / data.units) * 100)}%` : '0%', `${data.occupied} of ${data.units} units`],
+            ['Total invoiced', money(data.invoiced), 'Across current invoice records'],
+            ['Active leases', String(data.leases), 'Current contracts'],
+            ['Open maintenance', String(data.openMaintenance), 'Requests requiring attention'],
+          ].map(([label, value, detail]) => <div key={label} className="hairline-card space-y-2"><span className="eyebrow-label">{label}</span><div className="text-2xl font-semibold tracking-tight">{value}</div><p className="text-xs text-[#6e6e73]">{detail}</p></div>)}
+        </section>
+        <section className="hairline-card space-y-4">
+          <div className="flex items-center justify-between"><div><h2 className="text-sm font-semibold">Recent invoices</h2><p className="text-xs text-[#6e6e73]">Current tenant-database records</p></div><Link href="/billing" className="btn-pill-secondary px-4 py-2 text-xs">View billing</Link></div>
+          {data.invoices.length === 0 ? <p className="border-t border-[#e8e8ea] py-8 text-sm text-[#6e6e73]">No invoices have been created.</p> : <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="border-b border-[#e8e8ea] text-[11px] uppercase tracking-[0.12em] text-[#6e6e73]"><tr><th className="px-3 py-2">Invoice</th><th className="px-3 py-2">Unit</th><th className="px-3 py-2">Amount</th><th className="px-3 py-2">Status</th></tr></thead><tbody className="divide-y divide-[#e8e8ea]">{data.invoices.map((invoice) => <tr key={invoice.id}><td className="px-3 py-3 font-mono">{invoice.invoiceNumber}</td><td className="px-3 py-3">{invoice.billingAccount?.unit?.name ?? '—'}</td><td className="px-3 py-3 font-medium">{money(invoice.totalAmount)}</td><td className="px-3 py-3">{invoice.status}</td></tr>)}</tbody></table></div>}
+        </section>
+      </>}
     </div>
-  );
+  </div>;
 }

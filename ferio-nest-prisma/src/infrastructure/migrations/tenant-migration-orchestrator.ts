@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { resolveTenantPassword } from '../../infrastructure/tenant/tenant-credentials';
+import { buildTenantUrl } from '../../infrastructure/tenant/tenant-credentials';
+import { tlsOptionsFromUrl } from '../../infrastructure/tenant/tls-options';
 import { Client } from 'pg';
 import { spawnSync } from 'child_process';
 import { ControlPlanePrismaService } from '../control-plane/control-plane-prisma.service';
@@ -41,6 +42,15 @@ export interface BatchMigrationReport {
   outcomes: MigrationOutcome[];
 }
 
+interface TenantConnectionRecord {
+  databaseName: string;
+  host: string;
+  port: number;
+  username: string;
+  sslMode: string;
+  passwordRef?: string | null;
+}
+
 @Injectable()
 export class TenantMigrationOrchestrator {
   private readonly logger = new Logger(TenantMigrationOrchestrator.name);
@@ -61,7 +71,7 @@ export class TenantMigrationOrchestrator {
       );
     }
 
-    return this.migrateTenant(org.id, org.slug, org.database.databaseName);
+    return this.migrateTenant(org.id, org.slug, org.database);
   }
 
   /**
@@ -140,8 +150,9 @@ export class TenantMigrationOrchestrator {
   private async migrateTenant(
     organizationId: string,
     slug: string,
-    databaseName: string,
+    database: TenantConnectionRecord,
   ): Promise<MigrationOutcome> {
+    const { databaseName } = database;
     this.logger.log(`📦 Migrating tenant "${slug}" (${databaseName})`);
 
     // Maintenance mode: resolver rejects non-READY databases.
@@ -164,7 +175,7 @@ export class TenantMigrationOrchestrator {
           cwd: process.cwd(),
           env: {
             ...process.env,
-            TENANT_DATABASE_URL: this.tenantUrl(databaseName),
+            TENANT_DATABASE_URL: this.tenantUrl(database),
           },
           encoding: 'utf8',
           timeout: 120_000,
@@ -177,10 +188,10 @@ export class TenantMigrationOrchestrator {
         throw new Error(output.slice(-1500) || String(result.error));
       }
 
-      const schemaVersion = await this.readAppliedSchemaVersion(databaseName);
+      const schemaVersion = await this.readAppliedSchemaVersion(database);
 
       // Post-migration health check before restoring traffic.
-      const healthy = await this.healthCheck(databaseName);
+      const healthy = await this.healthCheck(database);
       if (!healthy) {
         await this.controlPlane.tenantDatabase.update({
           where: { organizationId },
@@ -254,10 +265,8 @@ export class TenantMigrationOrchestrator {
     }
   }
 
-  private async healthCheck(databaseName: string): Promise<boolean> {
-    const client = new Client({
-      connectionString: this.tenantUrl(databaseName),
-    });
+  private async healthCheck(database: TenantConnectionRecord): Promise<boolean> {
+    const client = new Client(tlsOptionsFromUrl(this.tenantUrl(database)));
     try {
       await client.connect();
       await client.query('SELECT 1');
@@ -273,11 +282,9 @@ export class TenantMigrationOrchestrator {
   }
 
   private async readAppliedSchemaVersion(
-    databaseName: string,
+    database: TenantConnectionRecord,
   ): Promise<string> {
-    const client = new Client({
-      connectionString: this.tenantUrl(databaseName),
-    });
+    const client = new Client(tlsOptionsFromUrl(this.tenantUrl(database)));
     try {
       await client.connect();
       const { rows } = await client.query<{ migration_name: string }>(
@@ -293,13 +300,8 @@ export class TenantMigrationOrchestrator {
     }
   }
 
-  private tenantUrl(databaseName: string): string {
-    const password =
-      resolveTenantPassword(null);
-    const host = process.env.TENANT_DB_HOST || 'localhost';
-    const port = process.env.TENANT_DB_PORT || '5432';
-    const username = process.env.TENANT_DB_USERNAME || 'postgres';
-    return `postgresql://${username}:${encodeURIComponent(password)}@${host}:${port}/${databaseName}`;
+  private tenantUrl(database: TenantConnectionRecord): string {
+    return buildTenantUrl(database);
   }
 
   private async audit(

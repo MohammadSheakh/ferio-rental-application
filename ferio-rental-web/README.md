@@ -1,4 +1,18 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Archived Ferio UI Prototype
+
+This directory is retained only as an early static design reference. It is not
+part of `pnpm-workspace.yaml`, CI, deployment, or the supported Ferio product.
+
+Active applications:
+
+- `ferio-marketplace-web`
+- `ferio-saas-web`
+- `ferio-admin-web`
+
+Do not add product features here. Move any reusable design work into the
+corresponding active application.
+
+<!-- Original create-next-app notes retained below for historical context. -->
 
 ## Getting Started
 

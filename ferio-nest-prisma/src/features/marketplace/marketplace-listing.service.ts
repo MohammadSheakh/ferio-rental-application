@@ -17,6 +17,7 @@ import {
   MapSearchDto,
 } from './dto/marketplace-listing.dto';
 import { ListingStatus } from '@prisma/marketplace-client';
+import { StorageService } from '../../infrastructure/storage/storage.service';
 
 /** Shape of rows returned by geospatial raw queries. */
 interface GeoSearchRow {
@@ -49,7 +50,10 @@ export class MarketplaceListingService {
   private readonly moderationEnabled =
     process.env.MARKETPLACE_MODERATION_ENABLED !== 'false';
 
-  constructor(private readonly marketplacePrisma: MarketplacePrismaService) {}
+  constructor(
+    private readonly marketplacePrisma: MarketplacePrismaService,
+    private readonly storage: StorageService,
+  ) {}
 
   async createListing(sellerAccountId: string, dto: CreateListingDto) {
     const account = await this.marketplacePrisma.marketplaceAccount.findUnique({
@@ -262,7 +266,13 @@ export class MarketplaceListingService {
       }
     });
 
-    return { ...listing, documents: visibleDocuments };
+    return {
+      ...listing,
+      documents: visibleDocuments.map((document) => ({
+        ...document,
+        fileUrl: this.storage.createSignedDownloadUrl(document.fileUrl),
+      })),
+    };
   }
 
   async addMedia(
@@ -296,6 +306,15 @@ export class MarketplaceListingService {
     if (listing.sellerId !== sellerAccountId) {
       throw new ForbiddenException('You do not own this listing');
     }
+    const account = await this.marketplacePrisma.marketplaceAccount.findUnique({
+      where: { id: sellerAccountId },
+      select: { centralUserId: true },
+    });
+    if (!account) throw new NotFoundException('Marketplace seller account not found');
+    this.storage.assertReferenceScope(dto.fileUrl, {
+      realm: 'marketplace',
+      id: account.centralUserId,
+    });
 
     return this.marketplacePrisma.listingDocument.create({
       data: {

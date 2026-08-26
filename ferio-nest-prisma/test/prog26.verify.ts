@@ -166,12 +166,12 @@ async function main() {
 
   // Stats after an inquiry lands in-window
   const buyer = await register(`promobuyer${TAG}@demo.test`, 'Curious Renter');
-  await req('POST', `/marketplace/accounts`, {
+  const buyerAcct = d(await req('POST', `/marketplace/accounts`, {
     token: buyer.token, body: { centralUserId: buyer.userId, displayName: 'Curious' },
-  });
+  }));
   await req('POST', `/marketplace/listings/${promotedId}/inquiries`, {
     token: buyer.token,
-    body: { senderAccountId: stAcct.id, message: 'Is it still available?' },
+    body: { senderAccountId: buyerAcct.id, message: 'Is it still available?' },
   }).catch(() => {});
   r = await req('GET', `/marketplace/promotions/${promo.id}/stats`, { token: seller.token });
   d(r)?.inquiriesInWindow >= 1
@@ -239,9 +239,10 @@ async function main() {
     : bad('sqft calc', JSON.stringify(masterCalc && masterCalc.areaSqFt));
 
   // Publish with a marketplace seller account bound to the owner identity
-  let ownerAcct = d(await req('GET', `/marketplace/accounts/me/${ownerMe.userId}`, {}));
+  let ownerAcct = d(await req('GET', `/marketplace/accounts/me/${ownerMe.userId}`, { token: owner.token }));
   if (!ownerAcct?.id) {
     ownerAcct = d(await req('POST', '/marketplace/accounts', {
+      token: owner.token,
       body: { centralUserId: ownerMe.userId, displayName: 'Sheakh Family Properties' },
     }));
   }

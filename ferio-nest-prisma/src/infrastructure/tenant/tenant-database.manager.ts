@@ -9,6 +9,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import { ControlPlanePrismaService } from '../control-plane/control-plane-prisma.service';
 import { tlsOptionsFromUrl } from './tls-options';
+import { buildTenantUrl } from './tenant-credentials';
 
 export { tlsOptionsFromUrl };
 
@@ -57,13 +58,7 @@ export class TenantDatabaseManager implements OnModuleDestroy {
       );
     }
 
-    const password =
-      process.env.TENANT_DB_PASSWORD ||
-      process.env.TENANT_DB_DEFAULT_PASSWORD ||
-      'postgres';
-    const dbUrl = `postgresql://${tenantDbRecord.username}:${encodeURIComponent(password)}@${tenantDbRecord.host}:${tenantDbRecord.port}/${tenantDbRecord.databaseName}?sslmode=${tenantDbRecord.sslMode}`;
-
-    return this.getClient(organizationId, dbUrl);
+    return this.getClient(organizationId, buildTenantUrl(tenantDbRecord));
   }
 
   /**

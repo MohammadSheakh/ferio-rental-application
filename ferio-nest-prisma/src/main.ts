@@ -146,22 +146,15 @@ async function bootstrap() {
   // ────────────────────────────────────────────────────────────────────────
   // Local Storage Driver — serve uploaded files at /uploads (§13)
   //
-  // P0 hardening: `images/` keys stay public (listing photos are public
-  // content). Everything else — documents/, backups/, room media — is
-  // PRIVATE and requires a Bearer token:
-  //   • backups/<key>            → platform staff only (realm claim check)
-  //   • everything non-images/   → any valid central-identity JWT
-  // S3 driver equivalents are enforced at the bucket/presign layer.
+  // Only listing images are exposed directly. Private objects are served by
+  // StorageController through short-lived, authorization-issued URLs.
   // ────────────────────────────────────────────────────────────────────────
 
   if (process.env.STORAGE_DRIVER !== 's3') {
     const express = require('express');
     const path = require('path');
-    const { join } = require('path');
-    const jwt = require('jsonwebtoken');
     const localDir =
       process.env.STORAGE_LOCAL_DIR ?? path.join(process.cwd(), 'storage-uploads');
-    const secret = () => process.env.JWT_ACCESS_SECRET || 'dev-secret';
 
     app.getHttpAdapter().getInstance().use('/uploads', (req: any, res: any, next: any) => {
       const key = decodeURIComponent(String(req.path || '')).replace(/^\/+/, '');
@@ -171,30 +164,9 @@ async function bootstrap() {
         return express.static(localDir, { maxAge: '30d' })(req, res, next);
       }
 
-      if (req.method !== 'GET') {
-        return res.status(405).json({ message: 'Method not allowed' });
-      }
-
-      // Authenticated fetch required for documents/backups/everything else.
-      const auth = String(req.headers.authorization ?? '');
-      const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-      if (!token) {
-        return res.status(401).json({ message: 'Authentication required for this file' });
-      }
-      try {
-        const payload = jwt.verify(token, secret()) as any;
-        if (key.startsWith('backups/') && payload.realm !== 'platform') {
-          return res.status(403).json({ message: 'Platform staff only' });
-        }
-        res.setHeader('Cache-Control', 'private, no-store');
-        return res.sendFile(join(localDir, ...key.split('/')), (err: any) => {
-          if (err) res.status(404).end();
-        });
-      } catch {
-        return res.status(401).json({ message: 'Invalid or expired token' });
-      }
+      return res.status(404).json({ message: 'Private object not found' });
     });
-    logger.log('💾 Serving local uploads from /uploads (auth-gated; images/ public)');
+    logger.log('💾 Serving public images from /uploads; private objects require signed links');
   }
 
   // ── P0 boot guard: production must never run the mock payment driver ──

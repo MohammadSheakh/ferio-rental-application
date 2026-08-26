@@ -33,14 +33,15 @@ export class TenantDbOpsService {
     private readonly storage: StorageService,
   ) {}
 
-  private tenantUrl(db: { host: string; port: number; username: string; databaseName: string; sslMode: string }): string {
-    const password =
-      process.env.TENANT_DB_PASSWORD ||
-      process.env.TENANT_DB_DEFAULT_PASSWORD ||
-      'postgres';
-    // pg_dump honours sslmode strictly (no silent fallback) — prefer lets
-    // it connect to both TLS and plain servers, matching Prisma's mapping.
-    return `postgresql://${db.username}:${encodeURIComponent(password)}@${db.host}:${db.port}/${db.databaseName}?sslmode=prefer`;
+  private tenantUrl(db: {
+    host: string;
+    port: number;
+    username: string;
+    databaseName: string;
+    sslMode: string;
+    passwordRef?: string | null;
+  }): string {
+    return buildTenantUrl(db);
   }
 
   private async resolveOrg(orgId: string) {
@@ -85,9 +86,7 @@ export class TenantDbOpsService {
     void stored;
 
     // Count tables for the record
-    const tableCount = await this.countTables({
-      host: db.host, port: db.port, username: db.username, databaseName: db.databaseName,
-    });
+    const tableCount = await this.countTables(db);
     rmSync(tmp, { recursive: true, force: true });
 
     const row = await this.controlPlane.tenantBackup.create({
@@ -173,10 +172,7 @@ export class TenantDbOpsService {
       host: dbRow.host,
       port: dbRow.port,
       user: dbRow.username,
-      password:
-        process.env.TENANT_DB_PASSWORD ||
-        process.env.TENANT_DB_DEFAULT_PASSWORD ||
-        'postgres',
+      password: resolveTenantPassword(dbRow.passwordRef),
     });
     await admin.connect();
     try {
@@ -191,6 +187,7 @@ export class TenantDbOpsService {
       username: dbRow.username,
       sslMode: dbRow.sslMode,
       databaseName: cloneName,
+      passwordRef: dbRow.passwordRef,
     });
 
     // Convert to plain SQL so we can strip newer-server-only statements
@@ -220,9 +217,7 @@ export class TenantDbOpsService {
       throw new Error(`restore apply failed: ${String(res.stderr).slice(0, 300)}`);
     }
 
-    const tableCount = await this.countTables({
-      host: dbRow.host, port: dbRow.port, username: dbRow.username, databaseName: cloneName,
-    });
+    const tableCount = await this.countTables({ ...dbRow, databaseName: cloneName });
     await this.controlPlane.tenantBackup.update({
       where: { id: backupId },
       data: { restoredToDbName: cloneName },
@@ -275,17 +270,18 @@ export class TenantDbOpsService {
   /** node-pg ≥8 treats sslmode=prefer strictly — connect directly, no SSL,
    *  unless the deployment opts into TLS via TENANT_DB_SSL=true. */
   private countTables(target: {
-    host: string; port: number; username: string; databaseName: string;
+    host: string;
+    port: number;
+    username: string;
+    databaseName: string;
+    passwordRef?: string | null;
   }): Promise<number> {
     return new Promise((resolve, reject) => {
       const c = new Client({
         host: target.host,
         port: target.port,
         user: target.username,
-        password:
-          process.env.TENANT_DB_PASSWORD ||
-          process.env.TENANT_DB_DEFAULT_PASSWORD ||
-          'postgres',
+        password: resolveTenantPassword(target.passwordRef),
         database: target.databaseName,
         ssl: process.env.TENANT_DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
       });
@@ -328,6 +324,7 @@ export class TenantDbOpsService {
     const org = await this.resolveOrg(organizationId);
     const db = org.database as never as {
       host: string; port: number; username: string; databaseName: string; sslMode: string;
+      passwordRef?: string | null;
     };
     const c = new Client({
       host: db.host,

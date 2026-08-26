@@ -75,11 +75,9 @@ async function main() {
   // Document upload
   r = await upload('/marketplace/uploads/documents', token, MIN_PDF, 'application/pdf', 'deed.pdf');
   const doc = d(r);
-  doc?.url && doc.contentType === 'application/pdf' ? ok('pdf document uploaded') : bad('doc upload', m(r));
-  const docHead = await fetch(doc.url);
-  (docHead.headers.get('content-type') ?? '').includes('application/pdf')
-    ? ok('document served with correct content-type')
-    : bad('fetch doc', docHead.headers.get('content-type'));
+  doc?.url?.startsWith('storage://') && doc.contentType === 'application/pdf'
+    ? ok('pdf document uploaded as an opaque private reference')
+    : bad('doc upload', m(r));
 
   // Validation: wrong type
   r = await upload('/marketplace/uploads/images', token, Buffer.from('hello world'), 'text/plain', 'x.txt');
@@ -92,7 +90,7 @@ async function main() {
   console.log('\n═══ B. Uploads registered on listings & rooms ═══');
 
   await req('POST', '/marketplace/accounts', { token, body: { centralUserId: d(await req('GET', '/identity/me', { token }))?.userId, displayName: 'Upload U' } }).then(d);
-  const acct = d(await req('GET', `/marketplace/accounts/me/${d(await req('GET', '/identity/me', { token }))?.userId}`));
+  const acct = d(await req('GET', `/marketplace/accounts/me/${d(await req('GET', '/identity/me', { token }))?.userId}`, { token }));
   r = await req('POST', `/marketplace/accounts/${acct.id}/listings`, {
     token,
     body: {
@@ -104,6 +102,19 @@ async function main() {
   const listingId = d(r)?.id;
   const staff = d(await req('POST', '/identity/platform/login', { body: { email: 'admin@ferio.test', password: 'RootAdmin1!' } }));
   await req('POST', `/platform/marketplace/listings/${listingId}/approve`, { token: staff.token });
+
+  r = await req('POST', `/marketplace/accounts/${acct.id}/listings/${listingId}/documents`, {
+    token,
+    body: { name: 'Deed', fileUrl: doc.url, docType: 'DEED', visibility: 'PUBLIC' },
+  });
+  d(r)?.id ? ok('private document reference registered by its owner') : bad('register document', m(r));
+  const documentDetail = d(await req('GET', `/marketplace/listings/${listingId}`));
+  const signedDocumentUrl = documentDetail?.documents?.[0]?.fileUrl;
+  const docHead = await fetch(signedDocumentUrl);
+  signedDocumentUrl?.startsWith('http') &&
+  (docHead.headers.get('content-type') ?? '').includes('application/pdf')
+    ? ok('authorized metadata returns a signed PDF download URL')
+    : bad('fetch signed document', docHead.status);
 
   r = await req('POST', `/marketplace/accounts/${acct.id}/listings/${listingId}/media`, {
     token, body: { url: img.url, isCover: true },

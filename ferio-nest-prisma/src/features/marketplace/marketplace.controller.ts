@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  ForbiddenException,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
@@ -29,7 +30,7 @@ import {
   MapSearchDto,
 } from './dto/marketplace-listing.dto';
 import { ListingStatus } from '@prisma/marketplace-client';
-import { OptionalJwtAuthGuard } from '../../infrastructure/identity/jwt-auth.guard';
+import { JwtAuthGuard, OptionalJwtAuthGuard } from '../../infrastructure/identity/jwt-auth.guard';
 import { Identity } from '../../infrastructure/identity/identity.decorators';
 
 @ApiTags('Marketplace')
@@ -41,16 +42,25 @@ export class MarketplaceController {
     private readonly interactionService: MarketplaceInteractionService,
   ) {}
 
+  private async assertOwnAccount(centralUserId: string, accountId: string) {
+    const account = await this.accountService.getAccountByCentralUserId(centralUserId);
+    if (account.id !== accountId) {
+      throw new ForbiddenException('Marketplace account does not belong to this identity');
+    }
+  }
+
   // ────────────────────────────────────────────────────────────
   // Marketplace Accounts
   // ────────────────────────────────────────────────────────────
 
   @Post('accounts')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary:
       'Create a public marketplace profile (individual, owner, broker, agency, developer)',
   })
   async createAccount(
+    @Identity() identity: { userId: string },
     @Body()
     body: {
       centralUserId: string;
@@ -62,17 +72,27 @@ export class MarketplaceController {
       bio?: string;
     },
   ) {
-    if (!body.centralUserId || !body.displayName) {
+    if (!body.displayName) {
       throw new BadRequestException(
-        'centralUserId and displayName are required',
+        'displayName is required',
       );
     }
-    return this.accountService.createAccount(body);
+    if (body.centralUserId && body.centralUserId !== identity.userId) {
+      throw new ForbiddenException('Cannot create an account for another identity');
+    }
+    return this.accountService.createAccount({ ...body, centralUserId: identity.userId });
   }
 
   @Get('accounts/me/:centralUserId')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get current user marketplace profile' })
-  async getMyAccount(@Param('centralUserId') centralUserId: string) {
+  async getMyAccount(
+    @Param('centralUserId') centralUserId: string,
+    @Identity() identity: { userId: string },
+  ) {
+    if (centralUserId !== identity.userId) {
+      throw new ForbiddenException('Cannot read another identity account');
+    }
     return this.accountService.getAccountByCentralUserId(centralUserId);
   }
 
@@ -133,46 +153,59 @@ export class MarketplaceController {
   }
 
   @Post('accounts/:accountId/listings')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Create a new property listing (enters PENDING_REVIEW when moderation is on)' })
   async createListing(
     @Param('accountId') accountId: string,
+    @Identity() identity: { userId: string },
     @Body() dto: CreateListingDto,
   ) {
+    await this.assertOwnAccount(identity.userId, accountId);
     return this.listingService.createListing(accountId, dto);
   }
 
   @Patch('accounts/:accountId/listings/:listingId')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Edit listing content (re-enters review after edits when moderation is on)' })
   async updateListing(
     @Param('accountId') accountId: string,
     @Param('listingId') listingId: string,
+    @Identity() identity: { userId: string },
     @Body() dto: UpdateListingDto,
   ) {
+    await this.assertOwnAccount(identity.userId, accountId);
     return this.listingService.updateListing(listingId, accountId, dto);
   }
 
   @Post('accounts/:accountId/listings/:listingId/media')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Add media (photo/video) to a listing' })
   async addMedia(
     @Param('accountId') accountId: string,
     @Param('listingId') listingId: string,
+    @Identity() identity: { userId: string },
     @Body() dto: AddListingMediaDto,
   ) {
+    await this.assertOwnAccount(identity.userId, accountId);
     return this.listingService.addMedia(listingId, accountId, dto);
   }
 
   @Post('accounts/:accountId/listings/:listingId/documents')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Upload legal/sale document to a listing' })
   async addDocument(
     @Param('accountId') accountId: string,
     @Param('listingId') listingId: string,
+    @Identity() identity: { userId: string },
     @Body() dto: AddListingDocumentDto,
   ) {
+    await this.assertOwnAccount(identity.userId, accountId);
     return this.listingService.addDocument(listingId, accountId, dto);
   }
 
   @Patch('accounts/:accountId/listings/:listingId/status')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Update listing status (ACTIVE, PAUSED, RENTED, SOLD, ARCHIVED)',
@@ -180,8 +213,10 @@ export class MarketplaceController {
   async updateStatus(
     @Param('accountId') accountId: string,
     @Param('listingId') listingId: string,
+    @Identity() identity: { userId: string },
     @Body() body: { status: ListingStatus },
   ) {
+    await this.assertOwnAccount(identity.userId, accountId);
     return this.listingService.updateStatus(listingId, accountId, body.status);
   }
 
@@ -190,56 +225,71 @@ export class MarketplaceController {
   // ────────────────────────────────────────────────────────────
 
   @Post('accounts/:accountId/listings/:listingId/rooms')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Add a room (name/type/feet dimensions/photos) to my listing' })
   async addRoom(
     @Param('accountId') accountId: string,
     @Param('listingId') listingId: string,
+    @Identity() identity: { userId: string },
     @Body() dto: AddListingRoomDto,
   ) {
+    await this.assertOwnAccount(identity.userId, accountId);
     return this.listingService.addRoom(listingId, accountId, dto);
   }
 
   @Patch('accounts/:accountId/listings/:listingId/rooms/:roomId')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Edit a room on my listing' })
   async updateRoom(
     @Param('accountId') accountId: string,
     @Param('listingId') listingId: string,
     @Param('roomId') roomId: string,
+    @Identity() identity: { userId: string },
     @Body() dto: UpdateListingRoomDto,
   ) {
+    await this.assertOwnAccount(identity.userId, accountId);
     return this.listingService.updateRoom(listingId, accountId, roomId, dto);
   }
 
   @Delete('accounts/:accountId/listings/:listingId/rooms/:roomId')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Remove a room from my listing' })
   async deleteRoom(
     @Param('accountId') accountId: string,
     @Param('listingId') listingId: string,
     @Param('roomId') roomId: string,
+    @Identity() identity: { userId: string },
   ) {
+    await this.assertOwnAccount(identity.userId, accountId);
     return this.listingService.deleteRoom(listingId, accountId, roomId);
   }
 
   @Post('accounts/:accountId/listings/:listingId/rooms/:roomId/media')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Register a photo against a specific room' })
   async addRoomMedia(
     @Param('accountId') accountId: string,
     @Param('listingId') listingId: string,
     @Param('roomId') roomId: string,
+    @Identity() identity: { userId: string },
     @Body() body: { url: string; caption?: string; sortOrder?: number },
   ) {
     if (!body?.url) throw new BadRequestException('url is required');
+    await this.assertOwnAccount(identity.userId, accountId);
     return this.listingService.addRoomMedia(listingId, accountId, roomId, body);
   }
 
   @Delete('accounts/:accountId/listings/:listingId/room-media/:mediaId')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Remove a room photo registration' })
   async deleteRoomMedia(
     @Param('accountId') accountId: string,
     @Param('listingId') listingId: string,
     @Param('mediaId') mediaId: string,
+    @Identity() identity: { userId: string },
   ) {
+    await this.assertOwnAccount(identity.userId, accountId);
     return this.listingService.deleteRoomMedia(listingId, accountId, mediaId);
   }
 
@@ -248,27 +298,36 @@ export class MarketplaceController {
   // ────────────────────────────────────────────────────────────
 
   @Post('accounts/:accountId/favorites/:listingId')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Toggle favorite status for a listing' })
   async toggleFavorite(
     @Param('accountId') accountId: string,
     @Param('listingId') listingId: string,
+    @Identity() identity: { userId: string },
   ) {
+    await this.assertOwnAccount(identity.userId, accountId);
     return this.interactionService.toggleFavorite(accountId, listingId);
   }
 
   @Get('accounts/:accountId/favorites')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get user favorite listings' })
-  async getFavorites(@Param('accountId') accountId: string) {
+  async getFavorites(
+    @Param('accountId') accountId: string,
+    @Identity() identity: { userId: string },
+  ) {
+    await this.assertOwnAccount(identity.userId, accountId);
     return this.interactionService.getAccountFavorites(accountId);
   }
 
   @Post('listings/:listingId/inquiries')
-  @UseGuards(ThrottlerGuard)
+  @UseGuards(JwtAuthGuard, ThrottlerGuard)
   @Throttle({ default: { limit: Number(process.env.INQUIRY_RATE_LIMIT || 30), ttl: 3_600_000 } })
   @ApiOperation({ summary: 'Send inquiry message to listing owner (rate limited, default 30/hour)' })
   async createInquiry(
     @Param('listingId') listingId: string,
+    @Identity() identity: { userId: string },
     @Body()
     body: {
       senderAccountId: string;
@@ -278,6 +337,7 @@ export class MarketplaceController {
       message: string;
     },
   ) {
+    await this.assertOwnAccount(identity.userId, body.senderAccountId);
     return this.interactionService.createInquiry({
       listingId,
       ...body,
@@ -285,17 +345,23 @@ export class MarketplaceController {
   }
 
   @Get('accounts/:accountId/inquiries')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'List account inquiries (sent and received)' })
-  async getInquiries(@Param('accountId') accountId: string) {
+  async getInquiries(
+    @Param('accountId') accountId: string,
+    @Identity() identity: { userId: string },
+  ) {
+    await this.assertOwnAccount(identity.userId, accountId);
     return this.interactionService.getInquiriesForAccount(accountId);
   }
 
   @Post('listings/:listingId/viewing-requests')
-  @UseGuards(ThrottlerGuard)
+  @UseGuards(JwtAuthGuard, ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 3_600_000 } })
   @ApiOperation({ summary: 'Schedule a property viewing appointment (rate limited: 10/hour)' })
   async createViewingRequest(
     @Param('listingId') listingId: string,
+    @Identity() identity: { userId: string },
     @Body()
     body: {
       requesterAccountId: string;
@@ -306,6 +372,7 @@ export class MarketplaceController {
       notes?: string;
     },
   ) {
+    await this.assertOwnAccount(identity.userId, body.requesterAccountId);
     return this.interactionService.createViewingRequest({
       listingId,
       ...body,
@@ -313,20 +380,27 @@ export class MarketplaceController {
   }
 
   @Get('accounts/:accountId/viewing-requests')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get viewing appointment requests' })
-  async getViewingRequests(@Param('accountId') accountId: string) {
+  async getViewingRequests(
+    @Param('accountId') accountId: string,
+    @Identity() identity: { userId: string },
+  ) {
+    await this.assertOwnAccount(identity.userId, accountId);
     return this.interactionService.getViewingRequestsForAccount(accountId);
   }
 
   @Post('listings/:listingId/report')
-  @UseGuards(ThrottlerGuard)
+  @UseGuards(JwtAuthGuard, ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 3_600_000 } })
   @ApiOperation({ summary: 'Report inappropriate listing (rate limited: 5/hour)' })
   async reportListing(
     @Param('listingId') listingId: string,
+    @Identity() identity: { userId: string },
     @Body()
     body: { reporterAccountId: string; reason: string; details?: string },
   ) {
+    await this.assertOwnAccount(identity.userId, body.reporterAccountId);
     return this.interactionService.createReport({
       listingId,
       ...body,

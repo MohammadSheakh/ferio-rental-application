@@ -12,6 +12,8 @@ import { EntitlementService } from '../src/infrastructure/entitlements/entitleme
 import { SubscriptionLifecycleService } from '../src/infrastructure/subscriptions/subscription-lifecycle.service';
 import { TenantPropertyService } from '../src/features/tenant-operations/tenant-property.service';
 import { TenantBillingService } from '../src/features/tenant-operations/tenant-billing.service';
+import { TenantLedgerService } from '../src/features/tenant-operations/tenant-ledger.service';
+import { TenantWebhookService } from '../src/features/tenant-operations/tenant-webhook.service';
 
 async function assert(cond: boolean, label: string) {
   if (!cond) throw new Error(`ASSERT FAILED: ${label}`);
@@ -26,7 +28,9 @@ async function main() {
   const entitlements = new EntitlementService(control);
   const subscriptions = new SubscriptionLifecycleService(control, tdm, entitlements);
   const propertyService = new TenantPropertyService(tdm, entitlements);
-  const billingService = new TenantBillingService(tdm);
+  const ledger = new TenantLedgerService(tdm);
+  const webhooks = new TenantWebhookService(tdm, control);
+  const billingService = new TenantBillingService(tdm, ledger, webhooks);
 
   const org = await control.saasOrganization.findUniqueOrThrow({
     where: { slug: 'quota-verify' },

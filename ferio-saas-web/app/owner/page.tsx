@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Building2, Users, CalendarDays, Wrench } from 'lucide-react';
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:6799/api/v1';
+  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:6733/api/v1';
 const STORAGE_KEY = 'ferio_identity';
 
 interface OwnerCoOwner { ownerName: string; sharePercent: number }

@@ -44,7 +44,7 @@ async function main() {
   await req('POST', '/marketplace/accounts', {
     token: seller.token, body: { centralUserId: seller.userId, displayName: 'Spotlight Seller' },
   }).then(d);
-  r = d(await req('GET', `/marketplace/accounts/me/${seller.userId}`));
+  r = d(await req('GET', `/marketplace/accounts/me/${seller.userId}`, { token: seller.token }));
   const sAcct = r;
 
   r = await req('POST', `/marketplace/accounts/${sAcct.id}/listings`, {
@@ -89,14 +89,14 @@ async function main() {
     : bad('revenue report', JSON.stringify(promos)?.slice(0, 160));
 
   console.log('\n═══ C. Anti-spam rate limits ═══');
-  // Fresh buyer spams inquiries at one listing — 429 must appear by request 12
+  // Default inquiry throttle is 30/hour; the 31st request must be rejected.
   const spammer = await register(`spam${TAG}@demo.test`, 'Eager Spammer');
   const spamAcct = d(await req('POST', '/marketplace/accounts', {
     token: spammer.token, body: { centralUserId: spammer.userId, displayName: 'Eager' },
   }));
   let got429 = false;
   let successes = 0;
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 35; i++) {
     r = await req('POST', `/marketplace/listings/${spotListing}/inquiries`, {
       token: spammer.token,
       body: { senderAccountId: spamAcct.id, message: `Spam attempt ${i}` },

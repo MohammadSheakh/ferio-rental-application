@@ -5,6 +5,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -16,6 +17,10 @@ import { StorageService } from '../../infrastructure/storage/storage.service';
 const imageUpload = FileInterceptor('file', {
   storage: memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
+});
+const documentUpload = FileInterceptor('file', {
+  storage: memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 /**
@@ -39,5 +44,19 @@ export class TenantUploadController {
   async uploadImage(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('file is required (multipart field "file")');
     return this.storage.upload('images', file);
+  }
+
+  @Post('documents')
+  @UseInterceptors(documentUpload)
+  @ApiBody({
+    schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } },
+  })
+  @ApiOperation({ summary: 'Upload a private workspace document (pdf/jpeg/png ≤10MB) → { url }' })
+  async uploadDocument(@Req() req: any, @UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('file is required (multipart field "file")');
+    return this.storage.upload('documents', file, {
+      realm: 'organization',
+      id: req.tenantContext.organizationId,
+    });
   }
 }

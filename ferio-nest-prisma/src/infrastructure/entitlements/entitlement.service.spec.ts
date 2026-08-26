@@ -15,6 +15,9 @@ function makeControlPlane(
     plan: {
       findFirst: jest.fn().mockResolvedValue(overrides.freePlan ?? null),
     },
+    saasOrganization: {
+      findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date(0) }),
+    },
   } as any;
 }
 

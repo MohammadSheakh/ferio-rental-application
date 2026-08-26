@@ -94,9 +94,17 @@ async function main() {
     body: { email: 'admin@ferio.test', password: 'RootAdmin1!' },
   }));
   const staffTok = staff?.token;
-  const seller = d(await req('GET', '/marketplace/accounts/me/demo_seed_seller'));
+  const ownerMe = d(await req('GET', '/identity/me', { token: owner.token }));
+  let seller = d(await req('GET', `/marketplace/accounts/me/${ownerMe.userId}`, { token: owner.token }));
+  if (!seller?.id) {
+    seller = d(await req('POST', '/marketplace/accounts', {
+      token: owner.token,
+      body: { centralUserId: ownerMe.userId, displayName: 'Sheakh Family Properties' },
+    }));
+  }
   const past = new Date(Date.now() - 86_400_000).toISOString();
   const expListing = d(await req('POST', `/marketplace/accounts/${seller.id}/listings`, {
+    token: owner.token,
     body: {
       purpose: 'RENT', assetType: 'APARTMENT', title: `Expiry probe ${Date.now()}`,
       price: 31000, area: 'Banani', expiresAt: past,
